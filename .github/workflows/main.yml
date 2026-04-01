@@ -1,0 +1,34 @@
+name: Build Win7 32-bit EXE
+
+on:
+  push:
+    branches: [ "main", "master" ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Code herunterladen
+      uses: actions/checkout@v4
+    
+    - name: Python 3.8 (32-bit) einrichten
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.8'
+        architecture: 'x86'    # Der magische 32-Bit Befehl für Windows 7
+        
+    - name: Bibliotheken installieren
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyserial pyautogui pyinstaller keyboard
+        
+    - name: EXE mit PyInstaller bauen
+      # Hier stehen jetzt die Anführungszeichen wegen der Leerzeichen!
+      run: pyinstaller --onefile --windowed "MK - MessKomplize.py"
+      
+    - name: Fertige EXE als Download bereitstellen
+      uses: actions/upload-artifact@v4
+      with:
+        name: MessKomplize-Win7-32bit
+        path: dist/*.exe
