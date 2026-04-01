@@ -47,6 +47,98 @@ class ToolTip:
             self.tipwindow = None
 
 
+class RoundedButton(tk.Canvas):
+    def __init__(self, parent, command=None, text="", textvariable=None, width=160, height=48,
+                 radius=14, bg="lightgrey", fg="black", font=("Arial", 10, "bold"), state="normal"):
+        super().__init__(parent, width=width, height=height, highlightthickness=0, bd=0, relief="flat")
+        self._command = command
+        self._text = text
+        self._textvariable = textvariable
+        self._width = width
+        self._height = height
+        self._radius = max(6, min(radius, width // 2, height // 2))
+        self._bg = bg
+        self._fg = fg
+        self._font = font
+        self._state = state
+        self._trace_id = None
+
+        if self._textvariable is not None:
+            self._trace_id = self._textvariable.trace_add("write", lambda *args: self._redraw())
+
+        self.bind("<Button-1>", self._on_click)
+        self._redraw()
+
+    def _on_click(self, event=None):
+        if self._state != "disabled" and self._command:
+            self._command()
+
+    def _current_text(self):
+        if self._textvariable is not None:
+            return self._textvariable.get()
+        return self._text
+
+    def _colors(self):
+        if self._state == "disabled":
+            return "#cfcfcf", "#808080"
+        return self._bg, self._fg
+
+    def _redraw(self):
+        self.delete("all")
+        fill_color, text_color = self._colors()
+        w = self._width
+        h = self._height
+        r = self._radius
+
+        # Rounded rectangle as polygon with smooth corners.
+        points = [
+            r, 0,
+            w - r, 0,
+            w, 0,
+            w, r,
+            w, h - r,
+            w, h,
+            w - r, h,
+            r, h,
+            0, h,
+            0, h - r,
+            0, r,
+            0, 0,
+        ]
+        self.create_polygon(points, smooth=True, splinesteps=24, fill=fill_color, outline=fill_color)
+        self.create_text(w // 2, h // 2, text=self._current_text(), fill=text_color, font=self._font)
+
+    def config(self, **kwargs):
+        if "command" in kwargs:
+            self._command = kwargs.pop("command")
+        if "text" in kwargs:
+            self._text = kwargs.pop("text")
+        if "textvariable" in kwargs:
+            new_textvariable = kwargs.pop("textvariable")
+            if self._textvariable is not None and self._trace_id is not None:
+                try:
+                    self._textvariable.trace_remove("write", self._trace_id)
+                except Exception:
+                    pass
+            self._textvariable = new_textvariable
+            self._trace_id = None
+            if self._textvariable is not None:
+                self._trace_id = self._textvariable.trace_add("write", lambda *args: self._redraw())
+        if "bg" in kwargs:
+            self._bg = kwargs.pop("bg")
+        if "fg" in kwargs:
+            self._fg = kwargs.pop("fg")
+        if "font" in kwargs:
+            self._font = kwargs.pop("font")
+        if "state" in kwargs:
+            self._state = kwargs.pop("state")
+        if kwargs:
+            super().config(**kwargs)
+        self._redraw()
+
+    configure = config
+
+
 class MessKomplizeApp:
     def __init__(self, root):
         self.root = root
@@ -317,13 +409,40 @@ class MessKomplizeApp:
         btn_frame.pack(pady=20)
         
         btn_font = ("Arial", 12, "bold")
-        self.btn_prog1 = tk.Button(btn_frame, textvariable=self.name_prog1, font=btn_font, width=15, height=2, command=lambda: self.set_program(1))
+        self.btn_prog1 = RoundedButton(
+            btn_frame,
+            textvariable=self.name_prog1,
+            font=btn_font,
+            width=170,
+            height=54,
+            radius=16,
+            bg="lightgrey",
+            command=lambda: self.set_program(1)
+        )
         self.btn_prog1.grid(row=0, column=0, padx=10)
         
-        self.btn_prog2 = tk.Button(btn_frame, textvariable=self.name_prog2, font=btn_font, width=15, height=2, command=lambda: self.set_program(2))
+        self.btn_prog2 = RoundedButton(
+            btn_frame,
+            textvariable=self.name_prog2,
+            font=btn_font,
+            width=170,
+            height=54,
+            radius=16,
+            bg="lightgrey",
+            command=lambda: self.set_program(2)
+        )
         self.btn_prog2.grid(row=0, column=1, padx=10)
         
-        self.btn_prog3 = tk.Button(btn_frame, textvariable=self.name_prog3, font=btn_font, width=15, height=2, command=lambda: self.set_program(3))
+        self.btn_prog3 = RoundedButton(
+            btn_frame,
+            textvariable=self.name_prog3,
+            font=btn_font,
+            width=170,
+            height=54,
+            radius=16,
+            bg="lightgrey",
+            command=lambda: self.set_program(3)
+        )
         self.btn_prog3.grid(row=0, column=2, padx=10)
         
         self.lbl_counter = tk.Label(self.tab_main, text="Messungen: 0", font=("Arial", 11, "bold"), fg="blue")
@@ -498,11 +617,29 @@ class MessKomplizeApp:
         btn_frame = tk.Frame(self.tab_test)
         btn_frame.pack(pady=10)
 
-        self.test_print_btn = tk.Button(btn_frame, text="Print simulieren", width=18, command=self.simulate_test_print, state="disabled")
+        self.test_print_btn = RoundedButton(
+            btn_frame,
+            text="Print simulieren",
+            width=190,
+            height=46,
+            radius=14,
+            bg="lightgrey",
+            command=self.simulate_test_print,
+            state="disabled"
+        )
         self.test_print_btn.grid(row=0, column=0, padx=10)
         ToolTip(self.test_print_btn, "Erzeugt einen simulierten Messwert und schreibt ihn mit den aktuellen Einstellungen nach Excel.")
 
-        self.test_tare_btn = tk.Button(btn_frame, text="Tara simulieren", width=18, command=self.simulate_test_tare, state="disabled")
+        self.test_tare_btn = RoundedButton(
+            btn_frame,
+            text="Tara simulieren",
+            width=190,
+            height=46,
+            radius=14,
+            bg="lightgrey",
+            command=self.simulate_test_tare,
+            state="disabled"
+        )
         self.test_tare_btn.grid(row=0, column=1, padx=10)
         ToolTip(self.test_tare_btn, "Löscht das aktuell angezeigte Testgewicht. Der nächste PRINT erzeugt wieder einen neuen Zufallswert.")
 
