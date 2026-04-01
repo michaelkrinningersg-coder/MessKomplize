@@ -21,11 +21,18 @@ jobs:
     - name: Bibliotheken installieren
       run: |
         python -m pip install --upgrade pip
-        pip install pyserial pyautogui pyinstaller keyboard
+        pip install -r requirements.txt
         
     - name: EXE mit PyInstaller bauen
-      # Hier stehen jetzt die Anführungszeichen wegen der Leerzeichen!
-      run: pyinstaller --onefile --windowed "MK - MessKomplize.py"
+      # Anführungszeichen wegen Leerzeichen im Dateinamen
+      # Hidden Imports für Module die PyInstaller nicht automatisch findet
+      run: >
+        pyinstaller --onefile --windowed
+        --hidden-import serial.tools.list_ports
+        --hidden-import serial.tools.list_ports_windows
+        --hidden-import tkinter
+        --hidden-import tkinter.ttk
+        "MK - MessKomplize.py"
       
     - name: Fertige EXE als Download bereitstellen
       uses: actions/upload-artifact@v4

@@ -10,6 +10,8 @@ import datetime
 import time
 import keyboard
 import glob
+import json
+import random
 
 # --- Hilfsklasse für die Tooltips (Mouseover-Texte) ---
 class ToolTip:
@@ -54,6 +56,8 @@ class MessKomplizeApp:
         self.serial_port = None
         self.is_running = False
         self.counter = 0
+        self.settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "messkomplize_settings.json")
+        self.last_successful_port = "COM1"
         
         # --- Standard-Variablen für Einstellungen ---
         self.port_var = tk.StringVar(value="COM1")
@@ -85,8 +89,19 @@ class MessKomplizeApp:
         self.mini_mode_var = tk.BooleanVar(value=False)
         self.log_clean_var = tk.BooleanVar(value=False)
         
+        # Datenformat-Optionen
+        self.dot_comma_var = tk.BooleanVar(value=True)  # Standardmäßig aktiv
+        self.unit_var = tk.BooleanVar(value=False)
+        self.fixed_decimals_var = tk.BooleanVar(value=False)
+        self.decimal_places_var = tk.IntVar(value=4)
+        self.test_mode_var = tk.BooleanVar(value=False)
+        self.test_display_var = tk.StringVar(value="----")
+
+        self.load_settings()
+        
         # UI Aufbauen
         self.setup_ui()
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.root.after(1000, self.auto_start_connection)
         
         # Wenn Log-Aufräumer aktiv, direkt beim Start einmal aufräumen
@@ -106,14 +121,17 @@ class MessKomplizeApp:
         
         self.tab_main = ttk.Frame(self.notebook)
         self.tab_settings = ttk.Frame(self.notebook)
+        self.tab_test = ttk.Frame(self.notebook)
         self.tab_help = ttk.Frame(self.notebook)
         
         self.notebook.add(self.tab_main, text="Programm")
         self.notebook.add(self.tab_settings, text="Einstellungen")
+        self.notebook.add(self.tab_test, text="Testmodus")
         self.notebook.add(self.tab_help, text="Hilfe")
         
         self.build_main_tab()
         self.build_settings_tab()
+        self.build_test_tab()
         self.build_help_tab()
         
         # Tracker für Änderungen
@@ -121,6 +139,163 @@ class MessKomplizeApp:
         self.f12_tare_var.trace_add("write", self.update_hotkeys)
         self.counter_var.trace_add("write", self.toggle_counter_visibility)
         self.mini_mode_var.trace_add("write", self.toggle_mini_mode)
+        self.test_mode_var.trace_add("write", self.update_test_mode_ui)
+
+    def get_available_ports(self):
+        return [port.device for port in serial.tools.list_ports.comports()]
+
+    def resolve_start_port(self, preferred_port=None):
+        available_ports = self.get_available_ports()
+        if preferred_port and preferred_port in available_ports:
+            return preferred_port
+        if available_ports:
+            return available_ports[0]
+        return "COM1"
+
+    def load_settings(self):
+        settings = {}
+        try:
+            if os.path.exists(self.settings_path):
+                with open(self.settings_path, "r", encoding="utf-8") as settings_file:
+                    settings = json.load(settings_file)
+        except Exception:
+            settings = {}
+
+        self.baud_var.set(settings.get("baudrate", self.baud_var.get()))
+        self.databits_var.set(settings.get("databits", self.databits_var.get()))
+        self.parity_var.set(settings.get("parity", self.parity_var.get()))
+        self.stopbits_var.set(settings.get("stopbits", self.stopbits_var.get()))
+
+        self.name_prog1.set(settings.get("name_prog1", self.name_prog1.get()))
+        self.name_prog2.set(settings.get("name_prog2", self.name_prog2.get()))
+        self.name_prog3.set(settings.get("name_prog3", self.name_prog3.get()))
+
+        self.f9_print_var.set(settings.get("f9_print", self.f9_print_var.get()))
+        self.f12_tare_var.set(settings.get("f12_tare", self.f12_tare_var.get()))
+        self.counter_var.set(settings.get("counter_visible", self.counter_var.get()))
+        self.auto_reconnect_var.set(settings.get("auto_reconnect", self.auto_reconnect_var.get()))
+        self.plausi_var.set(settings.get("plausi1", self.plausi_var.get()))
+        self.backup_var.set(settings.get("backup", self.backup_var.get()))
+        self.auto_save_var.set(settings.get("auto_save", self.auto_save_var.get()))
+        self.auto_save_x_var.set(settings.get("auto_save_x", self.auto_save_x_var.get()))
+        self.plausi2_var.set(settings.get("plausi2", self.plausi2_var.get()))
+        self.plausi2_limit_var.set(settings.get("plausi2_limit", self.plausi2_limit_var.get()))
+        self.mini_mode_var.set(settings.get("mini_mode", self.mini_mode_var.get()))
+        self.log_clean_var.set(settings.get("log_clean", self.log_clean_var.get()))
+        self.dot_comma_var.set(settings.get("dot_comma", self.dot_comma_var.get()))
+        self.unit_var.set(settings.get("unit", self.unit_var.get()))
+        self.fixed_decimals_var.set(settings.get("fixed_decimals", self.fixed_decimals_var.get()))
+        self.decimal_places_var.set(settings.get("decimal_places", self.decimal_places_var.get()))
+
+        saved_program = settings.get("current_program", self.current_program)
+        if saved_program in (1, 2, 3):
+            self.current_program = saved_program
+
+        saved_port = settings.get("port", self.port_var.get())
+        saved_last_port = settings.get("last_successful_port", saved_port)
+        available_ports = self.get_available_ports()
+        if saved_last_port in available_ports:
+            self.last_successful_port = saved_last_port
+        elif saved_port in available_ports:
+            self.last_successful_port = saved_port
+        elif available_ports:
+            self.last_successful_port = available_ports[0]
+        else:
+            self.last_successful_port = "COM1"
+        self.port_var.set(self.last_successful_port)
+
+    def save_settings(self):
+        settings = {
+            "port": self.port_var.get(),
+            "last_successful_port": self.last_successful_port,
+            "baudrate": self.baud_var.get(),
+            "databits": self.databits_var.get(),
+            "parity": self.parity_var.get(),
+            "stopbits": self.stopbits_var.get(),
+            "name_prog1": self.name_prog1.get(),
+            "name_prog2": self.name_prog2.get(),
+            "name_prog3": self.name_prog3.get(),
+            "current_program": self.current_program,
+            "f9_print": self.f9_print_var.get(),
+            "f12_tare": self.f12_tare_var.get(),
+            "counter_visible": self.counter_var.get(),
+            "auto_reconnect": self.auto_reconnect_var.get(),
+            "plausi1": self.plausi_var.get(),
+            "backup": self.backup_var.get(),
+            "auto_save": self.auto_save_var.get(),
+            "auto_save_x": self.auto_save_x_var.get(),
+            "plausi2": self.plausi2_var.get(),
+            "plausi2_limit": self.plausi2_limit_var.get(),
+            "mini_mode": self.mini_mode_var.get(),
+            "log_clean": self.log_clean_var.get(),
+            "dot_comma": self.dot_comma_var.get(),
+            "unit": self.unit_var.get(),
+            "fixed_decimals": self.fixed_decimals_var.get(),
+            "decimal_places": self.decimal_places_var.get(),
+        }
+
+        try:
+            with open(self.settings_path, "w", encoding="utf-8") as settings_file:
+                json.dump(settings, settings_file, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def on_close(self):
+        self.save_settings()
+        self.is_running = False
+        keyboard.unhook_all()
+        if self.serial_port and self.serial_port.is_open:
+            self.serial_port.close()
+        self.root.destroy()
+
+    def format_measurement_output(self, numeric_part, unit_part=""):
+        numeric_output = numeric_part
+        if self.fixed_decimals_var.get() and numeric_part:
+            try:
+                decimal_places = max(0, int(self.decimal_places_var.get()))
+                numeric_output = f"{float(numeric_part.replace(',', '.')):.{decimal_places}f}"
+            except Exception:
+                numeric_output = numeric_part
+
+        if self.dot_comma_var.get():
+            numeric_output = numeric_output.replace('.', ',')
+
+        if self.unit_var.get() and unit_part:
+            return f"{numeric_output} {unit_part}".strip()
+        return numeric_output
+
+    def commit_measurement(self, raw_data, processed_data, numeric_reference, source_label="Empfangen"):
+        if self.plausi_var.get() and "-" in raw_data:
+            self.root.after(0, self.log_to_monitor, f"WARNUNG PLAUSI 1: Negativer Wert! ({raw_data})", "red")
+        else:
+            self.root.after(0, self.log_to_monitor, f"{source_label}: {raw_data}")
+
+        if self.plausi2_var.get():
+            try:
+                num_val = float(numeric_reference.replace(',', '.'))
+                if num_val < self.plausi2_limit_var.get():
+                    self.root.after(0, self.log_to_monitor, f"WARNUNG PLAUSI 2: Wert zu niedrig! ({raw_data})", "red")
+            except Exception:
+                pass
+
+        self.save_to_backup(raw_data)
+        self.root.after(0, self.trigger_visual_flash)
+
+        self.counter += 1
+        self.root.after(0, lambda: self.lbl_counter.config(text=f"Messungen: {self.counter}"))
+
+        if self.auto_save_var.get() and self.counter % self.auto_save_x_var.get() == 0:
+            pyautogui.hotkey('ctrl', 's')
+            self.root.after(0, self.log_to_monitor, f"Auto-Save nach {self.counter} Messungen ausgeführt.", "blue")
+
+        pyautogui.write(processed_data)
+
+        if self.current_program == 1:
+            pyautogui.press('enter')
+        elif self.current_program == 2:
+            pyautogui.press('tab')
+        elif self.current_program == 3:
+            pyautogui.press('enter')
 
     def build_main_tab(self):
         top_frame = tk.Frame(self.tab_main)
@@ -165,7 +340,7 @@ class MessKomplizeApp:
         scrollbar.pack(side="right", fill="y")
         self.monitor_text.config(yscrollcommand=scrollbar.set)
         
-        self.set_program(1)
+        self.set_program(self.current_program)
 
     def build_settings_tab(self):
         # 1. Schnittstelle
@@ -183,6 +358,11 @@ class MessKomplizeApp:
         
         tk.Label(f_port, text="Parität:").grid(row=1, column=2, sticky="w", padx=20, pady=2)
         ttk.Combobox(f_port, textvariable=self.parity_var, values=["None", "Odd", "Even"], width=8).grid(row=1, column=3, pady=2)
+        
+        tk.Label(f_port, text="Stopbits:").grid(row=2, column=2, sticky="w", padx=20, pady=2)
+        cb_stop = ttk.Combobox(f_port, textvariable=self.stopbits_var, values=["1", "2"], width=8, state="readonly")
+        cb_stop.grid(row=2, column=3, pady=2)
+        ToolTip(cb_stop, "Anzahl der Stopbits der Waage. Standard ist '1'. Nur auf '2' stellen, wenn das Handbuch der Waage dies ausdrücklich vorschreibt.")
 
         # 2. Programme
         f_prog = tk.LabelFrame(self.tab_settings, text="Namen der Programme", font=("Arial", 10, "bold"))
@@ -259,6 +439,106 @@ class MessKomplizeApp:
         cb_clean.grid(row=11, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         ToolTip(cb_clean, "Hält deine Festplatte sauber, indem alte Log-Dateien automatisch vernichtet werden.")
 
+        tk.Frame(f_opt, height=1, bg="grey").grid(row=12, column=0, columnspan=2, sticky="we", pady=5)
+
+        cb_dotcomma = tk.Checkbutton(f_opt, text="Dezimalpunkt automatisch als Komma darstellen ('.' → ',')", variable=self.dot_comma_var)
+        cb_dotcomma.grid(row=13, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        ToolTip(cb_dotcomma, "Wandelt den Dezimalpunkt aus den Waagendaten automatisch in ein Komma um (z.B. '1.234' → '1,234'). Empfohlen für Excel mit deutscher Spracheinstellung. Standardmäßig aktiv.")
+
+        cb_unit = tk.Checkbutton(f_opt, text="Einheit mit erfassen (Einheit der Waage in Zelle schreiben)", variable=self.unit_var)
+        cb_unit.grid(row=14, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        ToolTip(cb_unit, "Schreibt die von der Waage gesendete Einheit (z.B. 'g', 'mg', 'kg') mit in die Excel-Zelle. Deaktiviert: nur der reine Zahlenwert wird eingetragen, empfohlen für Berechnungen.")
+
+        frm_decimals = tk.Frame(f_opt)
+        frm_decimals.grid(row=15, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        cb_decimals = tk.Checkbutton(frm_decimals, text="Feste Nachkommastellen verwenden:", variable=self.fixed_decimals_var)
+        cb_decimals.pack(side="left")
+        sp_decimals = tk.Spinbox(frm_decimals, from_=0, to=10, textvariable=self.decimal_places_var, width=4)
+        sp_decimals.pack(side="left", padx=(5, 0))
+        tk.Label(frm_decimals, text=" Stellen").pack(side="left")
+        ToolTip(frm_decimals, "Wenn aktiviert, wird der Zahlenwert immer auf die eingestellte Anzahl an Nachkommastellen formatiert. Wenn deaktiviert, werden alle von der Waage gelieferten Nachkommastellen unverändert übernommen.")
+
+    def build_test_tab(self):
+        header = tk.Label(self.tab_test, text="Testmodus für simulierte Waagenwerte", font=("Arial", 12, "bold"))
+        header.pack(pady=(20, 10))
+
+        info = tk.Label(
+            self.tab_test,
+            text="Hier kann die App ohne echte Waage getestet werden. PRINT erzeugt einen Zufallswert zwischen 1.0000 g und 3.0000 g, TARA löscht die Anzeige.",
+            wraplength=520,
+            justify="left"
+        )
+        info.pack(padx=20, pady=(0, 15), anchor="w")
+
+        cb_test_mode = tk.Checkbutton(
+            self.tab_test,
+            text="Testmodus aktivieren",
+            variable=self.test_mode_var,
+            font=("Arial", 11, "bold")
+        )
+        cb_test_mode.pack(anchor="w", padx=20, pady=(0, 10))
+        ToolTip(cb_test_mode, "Aktiviert eine simulierte Waage. PRINT erzeugt dann Testwerte ohne serielle Verbindung, TARA löscht die Testanzeige.")
+
+        self.test_status_label = tk.Label(self.tab_test, text="Testmodus deaktiviert", fg="red", font=("Arial", 11, "bold"))
+        self.test_status_label.pack(anchor="w", padx=20, pady=(0, 15))
+
+        display_frame = tk.Frame(self.tab_test, bg="#111111", bd=3, relief="sunken")
+        display_frame.pack(fill="x", padx=20, pady=(0, 20))
+
+        self.test_display_label = tk.Label(
+            display_frame,
+            textvariable=self.test_display_var,
+            bg="#111111",
+            fg="#33ff66",
+            font=("Courier New", 28, "bold"),
+            pady=20
+        )
+        self.test_display_label.pack(fill="x")
+
+        btn_frame = tk.Frame(self.tab_test)
+        btn_frame.pack(pady=10)
+
+        self.test_print_btn = tk.Button(btn_frame, text="Print simulieren", width=18, command=self.simulate_test_print, state="disabled")
+        self.test_print_btn.grid(row=0, column=0, padx=10)
+        ToolTip(self.test_print_btn, "Erzeugt einen simulierten Messwert und schreibt ihn mit den aktuellen Einstellungen nach Excel.")
+
+        self.test_tare_btn = tk.Button(btn_frame, text="Tara simulieren", width=18, command=self.simulate_test_tare, state="disabled")
+        self.test_tare_btn.grid(row=0, column=1, padx=10)
+        ToolTip(self.test_tare_btn, "Löscht das aktuell angezeigte Testgewicht. Der nächste PRINT erzeugt wieder einen neuen Zufallswert.")
+
+    def update_test_mode_ui(self, *args):
+        if self.test_mode_var.get():
+            self.test_status_label.config(text="Testmodus aktiv", fg="green")
+            self.test_print_btn.config(state="normal")
+            self.test_tare_btn.config(state="normal")
+            self.test_display_var.set("0")
+            self.log_to_monitor("--- Testmodus aktiviert ---", "blue")
+        else:
+            self.test_status_label.config(text="Testmodus deaktiviert", fg="red")
+            self.test_print_btn.config(state="disabled")
+            self.test_tare_btn.config(state="disabled")
+            self.test_display_var.set("----")
+            self.log_to_monitor("--- Testmodus deaktiviert ---", "blue")
+
+    def simulate_test_print(self):
+        if not self.test_mode_var.get():
+            self.log_to_monitor("Testmodus ist deaktiviert.", "orange")
+            return
+
+        numeric_part = f"{random.uniform(1.0, 3.0):.4f}"
+        raw_data = f"{numeric_part} g"
+        processed_data = self.format_measurement_output(numeric_part, "g")
+        self.test_display_var.set(processed_data)
+        self.commit_measurement(raw_data, processed_data, numeric_part, "Testmodus PRINT")
+
+    def simulate_test_tare(self):
+        if not self.test_mode_var.get():
+            self.log_to_monitor("Testmodus ist deaktiviert.", "orange")
+            return
+
+        self.test_display_var.set("----")
+        self.log_to_monitor("Testmodus TARA: Gewicht gelöscht.", "orange")
+
     def build_help_tab(self):
         txt = tk.Text(self.tab_help, wrap="word", bg="#fcfcfc", font=("Arial", 10), padx=15, pady=15)
         txt.pack(fill="both", expand=True)
@@ -278,6 +558,10 @@ Klicken Sie auf den Button, um das aktive Programm zu wechseln. Das aktive Progr
 - F12: Sendet den Befehl "Tarieren" an die Waage.
 (Diese Tasten funktionieren, während Sie in Excel arbeiten!)
 
+? TESTMODUS:
+Im Tab 'Testmodus' können Sie eine simulierte Waage aktivieren. PRINT erzeugt dort ein Zufallsgewicht zwischen 1.0000 g und 3.0000 g und schreibt es direkt nach Excel.
+TARA löscht die Anzeige. Die Ausgabe berücksichtigt immer Ihre aktuellen Einstellungen für Nachkommastellen, Einheit und Dezimaltrennzeichen.
+
 ? MINI-MODUS:
 Aktivieren Sie diesen Modus in den Einstellungen, wenn das Programm im Weg ist. Es verkleinert sich auf einen winzigen Balken, der immer im Vordergrund schwebt. Bei jeder erfolgreichen Einwaage blitzt er kurz grün auf.
 
@@ -286,6 +570,30 @@ Das Programm warnt Sie mit roter Schrift im Datenmonitor, wenn ein Minus-Wert ge
 
 ? AUTO-SAVE:
 Verlieren Sie nie wieder Daten. Das Programm drückt für Sie nach X Messungen automatisch 'STRG + S' in Excel.
+
+? EINSTELLUNGEN SPEICHERN:
+Alle Einstellungen werden beim Schließen des Programms automatisch gespeichert und beim nächsten Start wieder geladen.
+
+? AUTOMATISCHER COM-PORT-START:
+Nach einer erfolgreichen Verbindung merkt sich das Programm den zuletzt funktionierenden COM-Port und versucht diesen beim nächsten Start automatisch wieder zu verwenden.
+
+? STOPBITS (Schnittstellen-Parameter):
+Legt fest, wie viele Stopbits Ihre Waage verwendet. Standard ist '1'.
+Bitte nur auf '2' stellen, wenn das Handbuch der Waage dies ausdrücklich vorschreibt, da es sonst zu Übertragungsfehlern kommen kann.
+
+? DEZIMALPUNKT ALS KOMMA ('.' → ','):
+Wandelt den Dezimalpunkt automatisch in ein Komma um (z.B. '1.234' wird zu '1,234').
+Diese Option ist standardmäßig aktiv und sorgt dafür, dass Excel in deutscher Spracheinstellung den Wert als Zahl und nicht als Text interpretiert.
+Deaktivieren Sie diese Option nur, wenn Ihr Excel explizit auf englische Dezimaltrennung eingestellt ist.
+
+? EINHEIT MIT ERFASSEN:
+Ist diese Option aktiv, wird die von der Waage gesendete Einheit (z.B. 'g', 'mg', 'kg') zusammen mit dem Messwert in die Excel-Zelle geschrieben (z.B. '1,2340 g').
+Standardmäßig deaktiviert – es wird dann nur der reine Zahlenwert eingetragen, was für weiterführende Berechnungen in Excel empfohlen wird.
+
+? FESTE NACHKOMMASTELLEN:
+Ist diese Option deaktiviert, übernimmt das Programm alle von der Waage gelieferten Nachkommastellen unverändert.
+Ist sie aktiviert, können Sie mit den Pfeilen der Eingabebox festlegen, wie viele Nachkommastellen in Excel eingetragen werden sollen.
+So können Sie z.B. aus '1.234567' gezielt '1,235' oder '1,2346' machen.
 
 Bei anhaltenden Problemen prüfen Sie bitte das COM-Kabel und die Baudrate-Einstellungen der Waage!"""
         
@@ -357,6 +665,14 @@ Bei anhaltenden Problemen prüfen Sie bitte das COM-Kabel und die Baudrate-Einst
             keyboard.on_release_key('f12', lambda e: self.send_to_scale("T\r\n"))
 
     def send_to_scale(self, command):
+        if self.test_mode_var.get():
+            if "P" in command.upper():
+                self.simulate_test_print()
+                return
+            if "T" in command.upper():
+                self.simulate_test_tare()
+                return
+
         if self.is_running and self.serial_port and self.serial_port.is_open:
             try:
                 self.serial_port.write(command.encode('ascii'))
@@ -375,7 +691,8 @@ Bei anhaltenden Problemen prüfen Sie bitte das COM-Kabel und die Baudrate-Einst
         self.monitor_text.config(state="disabled")
 
     def auto_start_connection(self):
-        self.log_to_monitor("Automatischer Verbindungsversuch auf COM1...", "blue")
+        self.port_var.set(self.resolve_start_port(self.last_successful_port or self.port_var.get()))
+        self.log_to_monitor(f"Automatischer Verbindungsversuch auf {self.port_var.get()}...", "blue")
         self.start_reading()
 
     def toggle_connection(self):
@@ -412,6 +729,8 @@ Bei anhaltenden Problemen prüfen Sie bitte das COM-Kabel und die Baudrate-Einst
                 timeout=1
             )
             self.is_running = True
+            self.last_successful_port = port
+            self.save_settings()
             self.update_status(True, f"Verbunden ({port})")
             
             self.read_thread = threading.Thread(target=self.read_from_port, daemon=True)
@@ -447,43 +766,15 @@ Bei anhaltenden Problemen prüfen Sie bitte das COM-Kabel und die Baudrate-Einst
                         
                         if raw_bytes:
                             raw_data = raw_bytes.decode('ascii', errors='ignore').strip()
-                            processed_data = re.sub(r'[^0-9.,-]', '', raw_data)
-                            processed_data = processed_data.replace('.', ',')
-                            
-                            # Plausi 1: Minuswert
-                            if self.plausi_var.get() and "-" in raw_data:
-                                self.root.after(0, self.log_to_monitor, f"WARNUNG PLAUSI 1: Negativer Wert! ({raw_data})", "red")
-                            else:
-                                self.root.after(0, self.log_to_monitor, f"Empfangen: {raw_data}")
-                            
-                            # Plausi 2: Grenzwert unterschritten
-                            if self.plausi2_var.get():
-                                try:
-                                    # Für die Umwandlung ins Float-Format kurz Komma zu Punkt zurückwandeln
-                                    num_val = float(processed_data.replace(',', '.'))
-                                    if num_val < self.plausi2_limit_var.get():
-                                        self.root.after(0, self.log_to_monitor, f"WARNUNG PLAUSI 2: Wert zu niedrig! ({raw_data})", "red")
-                                except: pass
-                            
-                            self.save_to_backup(raw_data)
-                            self.root.after(0, self.trigger_visual_flash)
-                            
-                            self.counter += 1
-                            self.root.after(0, lambda: self.lbl_counter.config(text=f"Messungen: {self.counter}"))
-                            
-                            # Auto-Save auslösen
-                            if self.auto_save_var.get() and self.counter % self.auto_save_x_var.get() == 0:
-                                pyautogui.hotkey('ctrl', 's')
-                                self.root.after(0, self.log_to_monitor, f"Auto-Save nach {self.counter} Messungen ausgeführt.", "blue")
-                            
-                            pyautogui.write(processed_data)
-                            
-                            if self.current_program == 1:
-                                pyautogui.press('enter')
-                            elif self.current_program == 2:
-                                pyautogui.press('tab')
-                            elif self.current_program == 3:
-                                pyautogui.press('enter')
+                            number_match = re.search(r'-?\d+(?:[.,]\d+)?', raw_data)
+                            numeric_part = number_match.group(0) if number_match else ""
+                            unit_part = ""
+                            if number_match:
+                                unit_part = raw_data[number_match.end():].strip()
+                                unit_part = re.sub(r'[^A-Za-z%/ ]', '', unit_part).strip()
+                            numeric_reference = numeric_part or re.sub(r'[^0-9.,-]', '', raw_data)
+                            processed_data = self.format_measurement_output(numeric_reference, unit_part)
+                            self.commit_measurement(raw_data, processed_data, numeric_reference)
                                 
             except serial.SerialException:
                 if self.is_running and self.auto_reconnect_var.get():
