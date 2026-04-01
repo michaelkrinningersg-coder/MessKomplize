@@ -1,4 +1,4 @@
-import serial
+ï»¿import serial
 import serial.tools.list_ports
 import pyautogui
 import tkinter as tk
@@ -11,7 +11,7 @@ import time
 import keyboard
 import glob
 
-# --- Hilfsklasse für die Tooltips (Mouseover-Texte) ---
+# --- Hilfsklasse fÃ¼r die Tooltips (Mouseover-Texte) ---
 class ToolTip:
     def __init__(self, widget, text):
         self.widget = widget
@@ -49,13 +49,13 @@ class MessKomplizeApp:
     def __init__(self, root):
         self.root = root
         self.root.title("MK - MessKomplize Version 1.0")
-        self.root.geometry("620x850") # Etwas größer für alle Optionen
+        self.root.geometry("620x850") # Etwas grÃ¶ÃŸer fÃ¼r alle Optionen
         
         self.serial_port = None
         self.is_running = False
         self.counter = 0
         
-        # --- Standard-Variablen für Einstellungen ---
+        # --- Standard-Variablen fÃ¼r Einstellungen ---
         self.port_var = tk.StringVar(value="COM1")
         self.baud_var = tk.StringVar(value="9600")
         self.databits_var = tk.StringVar(value="7")
@@ -89,7 +89,7 @@ class MessKomplizeApp:
         self.setup_ui()
         self.root.after(1000, self.auto_start_connection)
         
-        # Wenn Log-Aufräumer aktiv, direkt beim Start einmal aufräumen
+        # Wenn Log-AufrÃ¤umer aktiv, direkt beim Start einmal aufrÃ¤umen
         self.root.after(2000, self.clean_old_logs)
 
     def setup_ui(self):
@@ -100,7 +100,7 @@ class MessKomplizeApp:
         self.btn_mini_exit = tk.Button(self.mini_frame, text="Vollbild", command=lambda: self.mini_mode_var.set(False))
         self.btn_mini_exit.pack()
         
-        # Notebook für Tabs
+        # Notebook fÃ¼r Tabs
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill="both", expand=True)
         
@@ -116,7 +116,7 @@ class MessKomplizeApp:
         self.build_settings_tab()
         self.build_help_tab()
         
-        # Tracker für Änderungen
+        # Tracker fÃ¼r Ã„nderungen
         self.f9_print_var.trace_add("write", self.update_hotkeys)
         self.f12_tare_var.trace_add("write", self.update_hotkeys)
         self.counter_var.trace_add("write", self.toggle_counter_visibility)
@@ -181,7 +181,7 @@ class MessKomplizeApp:
         tk.Label(f_port, text="Datenbits:").grid(row=0, column=2, sticky="w", padx=20, pady=2)
         ttk.Combobox(f_port, textvariable=self.databits_var, values=["7", "8"], width=8).grid(row=0, column=3, pady=2)
         
-        tk.Label(f_port, text="Parität:").grid(row=1, column=2, sticky="w", padx=20, pady=2)
+        tk.Label(f_port, text="ParitÃ¤t:").grid(row=1, column=2, sticky="w", padx=20, pady=2)
         ttk.Combobox(f_port, textvariable=self.parity_var, values=["None", "Odd", "Even"], width=8).grid(row=1, column=3, pady=2)
 
         # 2. Programme
@@ -202,62 +202,62 @@ class MessKomplizeApp:
         f_opt.pack(fill="both", expand=True, padx=15, pady=5)
         
         # Hotkeys
-        cb_f9 = tk.Checkbutton(f_opt, text="Print durch Drücken der Taste 'F9' auslösen", variable=self.f9_print_var)
+        cb_f9 = tk.Checkbutton(f_opt, text="Print durch DrÃ¼cken der Taste 'F9' auslÃ¶sen", variable=self.f9_print_var)
         cb_f9.grid(row=0, column=0, columnspan=2, sticky="w", padx=10, pady=2)
-        ToolTip(cb_f9, "Ermöglicht das Senden des Print-Befehls an die Waage, ohne die Maus zu benutzen.")
+        ToolTip(cb_f9, "ErmÃ¶glicht das Senden des Print-Befehls an die Waage, ohne die Maus zu benutzen.")
         
-        cb_f12 = tk.Checkbutton(f_opt, text="Tarieren durch Drücken der Taste 'F12' auslösen", variable=self.f12_tare_var)
+        cb_f12 = tk.Checkbutton(f_opt, text="Tarieren durch DrÃ¼cken der Taste 'F12' auslÃ¶sen", variable=self.f12_tare_var)
         cb_f12.grid(row=1, column=0, columnspan=2, sticky="w", padx=10, pady=2)
-        ToolTip(cb_f12, "Stellt die Waage sofort auf 0.0000, wenn F12 gedrückt wird.")
+        ToolTip(cb_f12, "Stellt die Waage sofort auf 0.0000, wenn F12 gedrÃ¼ckt wird.")
         
         # UI & Ansicht
-        cb_count = tk.Checkbutton(f_opt, text="Mess-Zähler auf Hauptseite anzeigen", variable=self.counter_var)
+        cb_count = tk.Checkbutton(f_opt, text="Mess-ZÃ¤hler auf Hauptseite anzeigen", variable=self.counter_var)
         cb_count.grid(row=2, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         
         cb_mini = tk.Checkbutton(f_opt, text="Schwebenden Mini-Modus aktivieren (inkl. Visuellem Flash)", variable=self.mini_mode_var)
         cb_mini.grid(row=3, column=0, columnspan=2, sticky="w", padx=10, pady=2)
-        ToolTip(cb_mini, "Verkleinert das Fenster extrem und hält es immer im Vordergrund über Excel. Blinkt grün bei Erfolg.")
+        ToolTip(cb_mini, "Verkleinert das Fenster extrem und hÃ¤lt es immer im Vordergrund Ã¼ber Excel. Blinkt grÃ¼n bei Erfolg.")
         
         tk.Frame(f_opt, height=1, bg="grey").grid(row=4, column=0, columnspan=2, sticky="we", pady=5)
         
-        # Sicherheit & Plausibilität
+        # Sicherheit & PlausibilitÃ¤t
         cb_recon = tk.Checkbutton(f_opt, text="Auto-Reconnect bei Verbindungsabbruch", variable=self.auto_reconnect_var)
         cb_recon.grid(row=5, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         ToolTip(cb_recon, "Versucht bei Kabel-Wacklern oder Trennung sofort, die Verbindung wiederherzustellen.")
         
-        cb_plausi1 = tk.Checkbutton(f_opt, text="Plausibilitäts-Check 1 (Warnung bei Minus-Werten)", variable=self.plausi_var)
+        cb_plausi1 = tk.Checkbutton(f_opt, text="PlausibilitÃ¤ts-Check 1 (Warnung bei Minus-Werten)", variable=self.plausi_var)
         cb_plausi1.grid(row=6, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         
-        # Plausibilität 2 (Grenzwert)
+        # PlausibilitÃ¤t 2 (Grenzwert)
         frm_plausi2 = tk.Frame(f_opt)
         frm_plausi2.grid(row=7, column=0, columnspan=2, sticky="w", padx=10, pady=2)
-        cb_plausi2 = tk.Checkbutton(frm_plausi2, text="Plausibilitäts-Check 2 (Warnen, wenn Wert kleiner als: ", variable=self.plausi2_var)
+        cb_plausi2 = tk.Checkbutton(frm_plausi2, text="PlausibilitÃ¤ts-Check 2 (Warnen, wenn Wert kleiner als: ", variable=self.plausi2_var)
         cb_plausi2.pack(side="left")
         sp_plausi2 = tk.Spinbox(frm_plausi2, from_=0, to=10000, increment=10, textvariable=self.plausi2_limit_var, width=6)
         sp_plausi2.pack(side="left")
         tk.Label(frm_plausi2, text=")").pack(side="left")
-        ToolTip(frm_plausi2, "Löst eine rote Warnung im Monitor aus, wenn eine extrem niedrige Einwaage (z.B. leeres Gefäß) registriert wird.")
+        ToolTip(frm_plausi2, "LÃ¶st eine rote Warnung im Monitor aus, wenn eine extrem niedrige Einwaage (z.B. leeres GefÃ¤ÃŸ) registriert wird.")
 
         tk.Frame(f_opt, height=1, bg="grey").grid(row=8, column=0, columnspan=2, sticky="we", pady=5)
         
         # Excel Auto-Save
         frm_save = tk.Frame(f_opt)
         frm_save.grid(row=9, column=0, columnspan=2, sticky="w", padx=10, pady=2)
-        cb_save = tk.Checkbutton(frm_save, text="Auto-Save (Strg+S) in Excel ausführen nach ", variable=self.auto_save_var)
+        cb_save = tk.Checkbutton(frm_save, text="Auto-Save (Strg+S) in Excel ausfÃ¼hren nach ", variable=self.auto_save_var)
         cb_save.pack(side="left")
         sp_save = tk.Spinbox(frm_save, from_=1, to=100, textvariable=self.auto_save_x_var, width=4)
         sp_save.pack(side="left")
         tk.Label(frm_save, text=" Messungen").pack(side="left")
-        ToolTip(frm_save, "Drückt automatisch STRG+S im Hintergrund, um dein Excel-Dokument regelmäßig zu sichern.")
+        ToolTip(frm_save, "DrÃ¼ckt automatisch STRG+S im Hintergrund, um dein Excel-Dokument regelmÃ¤ÃŸig zu sichern.")
 
         # Backup & Log
         cb_backup = tk.Checkbutton(f_opt, text="Hintergrund-Backup (in /backup Ordner speichern)", variable=self.backup_var)
         cb_backup.grid(row=10, column=0, columnspan=2, sticky="w", padx=10, pady=2)
-        ToolTip(cb_backup, "Speichert jeden Wert sicherheitshalber in eine Textdatei, falls Excel abstürzt.")
+        ToolTip(cb_backup, "Speichert jeden Wert sicherheitshalber in eine Textdatei, falls Excel abstÃ¼rzt.")
         
-        cb_clean = tk.Checkbutton(f_opt, text="Log-Aufräumer (Backups löschen, die älter als 30 Tage sind)", variable=self.log_clean_var)
+        cb_clean = tk.Checkbutton(f_opt, text="Log-AufrÃ¤umer (Backups lÃ¶schen, die Ã¤lter als 30 Tage sind)", variable=self.log_clean_var)
         cb_clean.grid(row=11, column=0, columnspan=2, sticky="w", padx=10, pady=2)
-        ToolTip(cb_clean, "Hält deine Festplatte sauber, indem alte Log-Dateien automatisch vernichtet werden.")
+        ToolTip(cb_clean, "HÃ¤lt deine Festplatte sauber, indem alte Log-Dateien automatisch vernichtet werden.")
 
     def build_help_tab(self):
         txt = tk.Text(self.tab_help, wrap="word", bg="#fcfcfc", font=("Arial", 10), padx=15, pady=15)
@@ -268,26 +268,26 @@ class MessKomplizeApp:
 Dieses Tool verbindet Ihre Laborwaage nahtlos mit Excel.
 
 ? PROGRAMME:
-1. Aufschluss: Nach der Messung wird automatisch ENTER gedrückt (Sprung nach unten).
-2. WGH 1: Nach der Messung wird TAB gedrückt (Sprung nach rechts).
-3. WGH 2: Nach der Messung wird wieder ENTER gedrückt.
-Klicken Sie auf den Button, um das aktive Programm zu wechseln. Das aktive Programm leuchtet grün.
+1. Aufschluss: Nach der Messung wird automatisch ENTER gedrÃ¼ckt (Sprung nach unten).
+2. WGH 1: Nach der Messung wird TAB gedrÃ¼ckt (Sprung nach rechts).
+3. WGH 2: Nach der Messung wird wieder ENTER gedrÃ¼ckt.
+Klicken Sie auf den Button, um das aktive Programm zu wechseln. Das aktive Programm leuchtet grÃ¼n.
 
 ? HOTKEYS:
 - F9: Sendet den Befehl "Print" an die Waage.
 - F12: Sendet den Befehl "Tarieren" an die Waage.
-(Diese Tasten funktionieren, während Sie in Excel arbeiten!)
+(Diese Tasten funktionieren, wÃ¤hrend Sie in Excel arbeiten!)
 
 ? MINI-MODUS:
-Aktivieren Sie diesen Modus in den Einstellungen, wenn das Programm im Weg ist. Es verkleinert sich auf einen winzigen Balken, der immer im Vordergrund schwebt. Bei jeder erfolgreichen Einwaage blitzt er kurz grün auf.
+Aktivieren Sie diesen Modus in den Einstellungen, wenn das Programm im Weg ist. Es verkleinert sich auf einen winzigen Balken, der immer im Vordergrund schwebt. Bei jeder erfolgreichen Einwaage blitzt er kurz grÃ¼n auf.
 
-? PLAUSIBILITÄTS-CHECK:
+? PLAUSIBILITÃ„TS-CHECK:
 Das Programm warnt Sie mit roter Schrift im Datenmonitor, wenn ein Minus-Wert gesendet wird (z.B. nicht tariert) oder die Einwaage unter einem von Ihnen definierten Grenzwert liegt.
 
 ? AUTO-SAVE:
-Verlieren Sie nie wieder Daten. Das Programm drückt für Sie nach X Messungen automatisch 'STRG + S' in Excel.
+Verlieren Sie nie wieder Daten. Das Programm drÃ¼ckt fÃ¼r Sie nach X Messungen automatisch 'STRG + S' in Excel.
 
-Bei anhaltenden Problemen prüfen Sie bitte das COM-Kabel und die Baudrate-Einstellungen der Waage!"""
+Bei anhaltenden Problemen prÃ¼fen Sie bitte das COM-Kabel und die Baudrate-Einstellungen der Waage!"""
         
         txt.insert("end", hilfe_text)
         txt.config(state="disabled")
@@ -320,7 +320,7 @@ Bei anhaltenden Problemen prüfen Sie bitte das COM-Kabel und die Baudrate-Einste
                 files = glob.glob("backup/backup_log_*.txt")
                 now = time.time()
                 for f in files:
-                    # Lösche Dateien, die älter als 30 Tage sind (30 * 24 * 60 * 60 Sekunden)
+                    # LÃ¶sche Dateien, die Ã¤lter als 30 Tage sind (30 * 24 * 60 * 60 Sekunden)
                     if os.stat(f).st_mtime < now - 30 * 86400:
                         os.remove(f)
             except:
@@ -459,7 +459,7 @@ Bei anhaltenden Problemen prüfen Sie bitte das COM-Kabel und die Baudrate-Einste
                             # Plausi 2: Grenzwert unterschritten
                             if self.plausi2_var.get():
                                 try:
-                                    # Für die Umwandlung ins Float-Format kurz Komma zu Punkt zurückwandeln
+                                    # FÃ¼r die Umwandlung ins Float-Format kurz Komma zu Punkt zurÃ¼ckwandeln
                                     num_val = float(processed_data.replace(',', '.'))
                                     if num_val < self.plausi2_limit_var.get():
                                         self.root.after(0, self.log_to_monitor, f"WARNUNG PLAUSI 2: Wert zu niedrig! ({raw_data})", "red")
@@ -471,10 +471,10 @@ Bei anhaltenden Problemen prüfen Sie bitte das COM-Kabel und die Baudrate-Einste
                             self.counter += 1
                             self.root.after(0, lambda: self.lbl_counter.config(text=f"Messungen: {self.counter}"))
                             
-                            # Auto-Save auslösen
+                            # Auto-Save auslÃ¶sen
                             if self.auto_save_var.get() and self.counter % self.auto_save_x_var.get() == 0:
                                 pyautogui.hotkey('ctrl', 's')
-                                self.root.after(0, self.log_to_monitor, f"Auto-Save nach {self.counter} Messungen ausgeführt.", "blue")
+                                self.root.after(0, self.log_to_monitor, f"Auto-Save nach {self.counter} Messungen ausgefÃ¼hrt.", "blue")
                             
                             pyautogui.write(processed_data)
                             
