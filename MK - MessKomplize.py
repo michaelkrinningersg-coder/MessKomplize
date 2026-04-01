@@ -458,6 +458,35 @@ class MessKomplizeApp:
         scrollbar = tk.Scrollbar(monitor_frame, command=self.monitor_text.yview)
         scrollbar.pack(side="right", fill="y")
         self.monitor_text.config(yscrollcommand=scrollbar.set)
+
+        action_frame = tk.Frame(self.tab_main)
+        action_frame.pack(pady=(0, 18))
+
+        self.btn_print = RoundedButton(
+            action_frame,
+            text="Print",
+            font=("Arial", 12, "bold"),
+            width=170,
+            height=54,
+            radius=16,
+            bg="lightgrey",
+            command=lambda: self.send_to_scale("P\r\n")
+        )
+        self.btn_print.grid(row=0, column=0, padx=10)
+        ToolTip(self.btn_print, "Löst den PRINT-Befehl an der Waage aus. Der gemessene Wert wird wie gewohnt in die aktive Excel-Zelle übernommen.")
+
+        self.btn_tara = RoundedButton(
+            action_frame,
+            text="Tara",
+            font=("Arial", 12, "bold"),
+            width=170,
+            height=54,
+            radius=16,
+            bg="lightgrey",
+            command=lambda: self.send_to_scale("T\r\n")
+        )
+        self.btn_tara.grid(row=0, column=1, padx=10)
+        ToolTip(self.btn_tara, "Sendet den TARA-Befehl an die Waage und setzt den Messwert auf Null.")
         
         self.set_program(self.current_program)
 
