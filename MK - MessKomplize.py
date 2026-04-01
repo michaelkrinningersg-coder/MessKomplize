@@ -8,7 +8,6 @@ import re
 import os
 import datetime
 import time
-import keyboard
 import glob
 import json
 import random
@@ -164,19 +163,17 @@ class MessKomplizeApp:
         self.current_program = 1 
         
         # Neue & Alte Optionen (Standard: Aus)
-        self.f9_print_var = tk.BooleanVar(value=False)
-        self.f12_tare_var = tk.BooleanVar(value=False)
         self.counter_var = tk.BooleanVar(value=False)
         self.auto_reconnect_var = tk.BooleanVar(value=False)
         self.plausi_var = tk.BooleanVar(value=False)
-        self.backup_var = tk.BooleanVar(value=False)
+        self.backup_var = tk.BooleanVar(value=True)
         
         # V1.0 Exklusiv-Optionen
         self.auto_save_var = tk.BooleanVar(value=False)
         self.auto_save_x_var = tk.IntVar(value=10) # Alle 10 Messungen
         
         self.plausi2_var = tk.BooleanVar(value=False)
-        self.plausi2_limit_var = tk.DoubleVar(value=100.0) # Grenze in mg/g
+        self.plausi2_limit_var = tk.StringVar(value="100") # Freie Grenze: bis 3 Stellen vor Komma, bis 4 nach Komma
         
         self.mini_mode_var = tk.BooleanVar(value=False)
         self.log_clean_var = tk.BooleanVar(value=False)
@@ -227,8 +224,6 @@ class MessKomplizeApp:
         self.build_help_tab()
         
         # Tracker für Änderungen
-        self.f9_print_var.trace_add("write", self.update_hotkeys)
-        self.f12_tare_var.trace_add("write", self.update_hotkeys)
         self.counter_var.trace_add("write", self.toggle_counter_visibility)
         self.mini_mode_var.trace_add("write", self.toggle_mini_mode)
         self.test_mode_var.trace_add("write", self.update_test_mode_ui)
@@ -262,8 +257,6 @@ class MessKomplizeApp:
         self.name_prog2.set(settings.get("name_prog2", self.name_prog2.get()))
         self.name_prog3.set(settings.get("name_prog3", self.name_prog3.get()))
 
-        self.f9_print_var.set(settings.get("f9_print", self.f9_print_var.get()))
-        self.f12_tare_var.set(settings.get("f12_tare", self.f12_tare_var.get()))
         self.counter_var.set(settings.get("counter_visible", self.counter_var.get()))
         self.auto_reconnect_var.set(settings.get("auto_reconnect", self.auto_reconnect_var.get()))
         self.plausi_var.set(settings.get("plausi1", self.plausi_var.get()))
@@ -308,8 +301,6 @@ class MessKomplizeApp:
             "name_prog2": self.name_prog2.get(),
             "name_prog3": self.name_prog3.get(),
             "current_program": self.current_program,
-            "f9_print": self.f9_print_var.get(),
-            "f12_tare": self.f12_tare_var.get(),
             "counter_visible": self.counter_var.get(),
             "auto_reconnect": self.auto_reconnect_var.get(),
             "plausi1": self.plausi_var.get(),
@@ -335,7 +326,6 @@ class MessKomplizeApp:
     def on_close(self):
         self.save_settings()
         self.is_running = False
-        keyboard.unhook_all()
         if self.serial_port and self.serial_port.is_open:
             self.serial_port.close()
         self.root.destroy()
@@ -365,12 +355,15 @@ class MessKomplizeApp:
         if self.plausi2_var.get():
             try:
                 num_val = float(numeric_reference.replace(',', '.'))
-                if num_val < self.plausi2_limit_var.get():
+                limit_val = self.get_plausi2_limit_value()
+                if limit_val is None:
+                    self.root.after(0, self.log_to_monitor, "WARNUNG PLAUSI 2: Grenzwert-Format ungültig (erlaubt: -999,9999 bis 999,9999)", "red")
+                elif num_val < limit_val:
                     self.root.after(0, self.log_to_monitor, f"WARNUNG PLAUSI 2: Wert zu niedrig! ({raw_data})", "red")
             except Exception:
                 pass
 
-        self.save_to_backup(raw_data)
+        self.save_to_backup(processed_data)
         self.root.after(0, self.trigger_visual_flash)
 
         self.counter += 1
@@ -380,7 +373,7 @@ class MessKomplizeApp:
             pyautogui.hotkey('ctrl', 's')
             self.root.after(0, self.log_to_monitor, f"Auto-Save nach {self.counter} Messungen ausgeführt.", "blue")
 
-        pyautogui.write(processed_data)
+        pyautogui.write(str(processed_data))
 
         if self.current_program == 1:
             pyautogui.press('enter')
@@ -459,35 +452,6 @@ class MessKomplizeApp:
         scrollbar.pack(side="right", fill="y")
         self.monitor_text.config(yscrollcommand=scrollbar.set)
 
-        action_frame = tk.Frame(self.tab_main)
-        action_frame.pack(pady=(0, 18))
-
-        self.btn_print = RoundedButton(
-            action_frame,
-            text="Print",
-            font=("Arial", 12, "bold"),
-            width=170,
-            height=54,
-            radius=16,
-            bg="lightgrey",
-            command=lambda: self.send_to_scale("P\r\n")
-        )
-        self.btn_print.grid(row=0, column=0, padx=10)
-        ToolTip(self.btn_print, "Löst den PRINT-Befehl an der Waage aus. Der gemessene Wert wird wie gewohnt in die aktive Excel-Zelle übernommen.")
-
-        self.btn_tara = RoundedButton(
-            action_frame,
-            text="Tara",
-            font=("Arial", 12, "bold"),
-            width=170,
-            height=54,
-            radius=16,
-            bg="lightgrey",
-            command=lambda: self.send_to_scale("T\r\n")
-        )
-        self.btn_tara.grid(row=0, column=1, padx=10)
-        ToolTip(self.btn_tara, "Sendet den TARA-Befehl an die Waage und setzt den Messwert auf Null.")
-        
         self.set_program(self.current_program)
 
     def build_settings_tab(self):
@@ -529,48 +493,39 @@ class MessKomplizeApp:
         f_opt = tk.LabelFrame(self.tab_settings, text="Erweiterte Optionen & Automatisierung", font=("Arial", 10, "bold"))
         f_opt.pack(fill="both", expand=True, padx=15, pady=5)
         
-        # Hotkeys
-        cb_f9 = tk.Checkbutton(f_opt, text="Print durch Drücken der Taste 'F9' auslösen", variable=self.f9_print_var)
-        cb_f9.grid(row=0, column=0, columnspan=2, sticky="w", padx=10, pady=2)
-        ToolTip(cb_f9, "Ermöglicht das Senden des Print-Befehls an die Waage, ohne die Maus zu benutzen.")
-        
-        cb_f12 = tk.Checkbutton(f_opt, text="Tarieren durch Drücken der Taste 'F12' auslösen", variable=self.f12_tare_var)
-        cb_f12.grid(row=1, column=0, columnspan=2, sticky="w", padx=10, pady=2)
-        ToolTip(cb_f12, "Stellt die Waage sofort auf 0.0000, wenn F12 gedrückt wird.")
-        
         # UI & Ansicht
         cb_count = tk.Checkbutton(f_opt, text="Mess-Zähler auf Hauptseite anzeigen", variable=self.counter_var)
-        cb_count.grid(row=2, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        cb_count.grid(row=0, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         
         cb_mini = tk.Checkbutton(f_opt, text="Schwebenden Mini-Modus aktivieren (inkl. Visuellem Flash)", variable=self.mini_mode_var)
-        cb_mini.grid(row=3, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        cb_mini.grid(row=1, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         ToolTip(cb_mini, "Verkleinert das Fenster extrem und hält es immer im Vordergrund über Excel. Blinkt grün bei Erfolg.")
         
-        tk.Frame(f_opt, height=1, bg="grey").grid(row=4, column=0, columnspan=2, sticky="we", pady=5)
+        tk.Frame(f_opt, height=1, bg="grey").grid(row=2, column=0, columnspan=2, sticky="we", pady=5)
         
         # Sicherheit & Plausibilität
         cb_recon = tk.Checkbutton(f_opt, text="Auto-Reconnect bei Verbindungsabbruch", variable=self.auto_reconnect_var)
-        cb_recon.grid(row=5, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        cb_recon.grid(row=3, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         ToolTip(cb_recon, "Versucht bei Kabel-Wacklern oder Trennung sofort, die Verbindung wiederherzustellen.")
         
         cb_plausi1 = tk.Checkbutton(f_opt, text="Plausibilitäts-Check 1 (Warnung bei Minus-Werten)", variable=self.plausi_var)
-        cb_plausi1.grid(row=6, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        cb_plausi1.grid(row=4, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         
         # Plausibilität 2 (Grenzwert)
         frm_plausi2 = tk.Frame(f_opt)
-        frm_plausi2.grid(row=7, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        frm_plausi2.grid(row=5, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         cb_plausi2 = tk.Checkbutton(frm_plausi2, text="Plausibilitäts-Check 2 (Warnen, wenn Wert kleiner als: ", variable=self.plausi2_var)
         cb_plausi2.pack(side="left")
-        sp_plausi2 = tk.Spinbox(frm_plausi2, from_=0, to=10000, increment=10, textvariable=self.plausi2_limit_var, width=6)
-        sp_plausi2.pack(side="left")
+        ent_plausi2 = tk.Entry(frm_plausi2, textvariable=self.plausi2_limit_var, width=8)
+        ent_plausi2.pack(side="left")
         tk.Label(frm_plausi2, text=")").pack(side="left")
-        ToolTip(frm_plausi2, "Löst eine rote Warnung im Monitor aus, wenn eine extrem niedrige Einwaage (z.B. leeres Gefäß) registriert wird.")
+        ToolTip(frm_plausi2, "Löst eine rote Warnung im Monitor aus, wenn eine extrem niedrige Einwaage registriert wird. Grenzwertformat: optionales Minus, max 3 Stellen vor und max 4 nach dem Komma.")
 
-        tk.Frame(f_opt, height=1, bg="grey").grid(row=8, column=0, columnspan=2, sticky="we", pady=5)
+        tk.Frame(f_opt, height=1, bg="grey").grid(row=6, column=0, columnspan=2, sticky="we", pady=5)
         
         # Excel Auto-Save
         frm_save = tk.Frame(f_opt)
-        frm_save.grid(row=9, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        frm_save.grid(row=7, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         cb_save = tk.Checkbutton(frm_save, text="Auto-Save (Strg+S) in Excel ausführen nach ", variable=self.auto_save_var)
         cb_save.pack(side="left")
         sp_save = tk.Spinbox(frm_save, from_=1, to=100, textvariable=self.auto_save_x_var, width=4)
@@ -580,25 +535,25 @@ class MessKomplizeApp:
 
         # Backup & Log
         cb_backup = tk.Checkbutton(f_opt, text="Hintergrund-Backup (in /backup Ordner speichern)", variable=self.backup_var)
-        cb_backup.grid(row=10, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        cb_backup.grid(row=8, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         ToolTip(cb_backup, "Speichert jeden Wert sicherheitshalber in eine Textdatei, falls Excel abstürzt.")
         
         cb_clean = tk.Checkbutton(f_opt, text="Log-Aufräumer (Backups löschen, die älter als 30 Tage sind)", variable=self.log_clean_var)
-        cb_clean.grid(row=11, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        cb_clean.grid(row=9, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         ToolTip(cb_clean, "Hält deine Festplatte sauber, indem alte Log-Dateien automatisch vernichtet werden.")
 
-        tk.Frame(f_opt, height=1, bg="grey").grid(row=12, column=0, columnspan=2, sticky="we", pady=5)
+        tk.Frame(f_opt, height=1, bg="grey").grid(row=10, column=0, columnspan=2, sticky="we", pady=5)
 
         cb_dotcomma = tk.Checkbutton(f_opt, text="Dezimalpunkt automatisch als Komma darstellen ('.' → ',')", variable=self.dot_comma_var)
-        cb_dotcomma.grid(row=13, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        cb_dotcomma.grid(row=11, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         ToolTip(cb_dotcomma, "Wandelt den Dezimalpunkt aus den Waagendaten automatisch in ein Komma um (z.B. '1.234' → '1,234'). Empfohlen für Excel mit deutscher Spracheinstellung. Standardmäßig aktiv.")
 
         cb_unit = tk.Checkbutton(f_opt, text="Einheit mit erfassen (Einheit der Waage in Zelle schreiben)", variable=self.unit_var)
-        cb_unit.grid(row=14, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        cb_unit.grid(row=12, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         ToolTip(cb_unit, "Schreibt die von der Waage gesendete Einheit (z.B. 'g', 'mg', 'kg') mit in die Excel-Zelle. Deaktiviert: nur der reine Zahlenwert wird eingetragen, empfohlen für Berechnungen.")
 
         frm_decimals = tk.Frame(f_opt)
-        frm_decimals.grid(row=15, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        frm_decimals.grid(row=13, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         cb_decimals = tk.Checkbutton(frm_decimals, text="Feste Nachkommastellen verwenden:", variable=self.fixed_decimals_var)
         cb_decimals.pack(side="left")
         sp_decimals = tk.Spinbox(frm_decimals, from_=0, to=10, textvariable=self.decimal_places_var, width=4)
@@ -612,7 +567,7 @@ class MessKomplizeApp:
 
         info = tk.Label(
             self.tab_test,
-            text="Hier kann die App ohne echte Waage getestet werden. PRINT erzeugt einen Zufallswert zwischen 1.0000 g und 3.0000 g, TARA löscht die Anzeige.",
+            text="Hier kann die App ohne echte Waage getestet werden. PRINT erzeugt einen Zufallswert zwischen 1.0000 g und 3.0000 g und schreibt ihn wie eine echte Messung nach Excel, TARA löscht nur die Anzeige.",
             wraplength=520,
             justify="left"
         )
@@ -625,7 +580,7 @@ class MessKomplizeApp:
             font=("Arial", 11, "bold")
         )
         cb_test_mode.pack(anchor="w", padx=20, pady=(0, 10))
-        ToolTip(cb_test_mode, "Aktiviert eine simulierte Waage. PRINT erzeugt dann Testwerte ohne serielle Verbindung, TARA löscht die Testanzeige.")
+        ToolTip(cb_test_mode, "Aktiviert eine simulierte Waage. PRINT erzeugt dann Testwerte ohne seriellen Befehl an die Waage und schreibt sie nach Excel, TARA löscht nur die Testanzeige.")
 
         self.test_status_label = tk.Label(self.tab_test, text="Testmodus deaktiviert", fg="red", font=("Arial", 11, "bold"))
         self.test_status_label.pack(anchor="w", padx=20, pady=(0, 15))
@@ -719,23 +674,24 @@ Dieses Tool verbindet Ihre Laborwaage nahtlos mit Excel.
 3. WGH 2: Nach der Messung wird wieder ENTER gedrückt.
 Klicken Sie auf den Button, um das aktive Programm zu wechseln. Das aktive Programm leuchtet grün.
 
-? HOTKEYS:
-- F9: Sendet den Befehl "Print" an die Waage.
-- F12: Sendet den Befehl "Tarieren" an die Waage.
-(Diese Tasten funktionieren, während Sie in Excel arbeiten!)
-
 ? TESTMODUS:
 Im Tab 'Testmodus' können Sie eine simulierte Waage aktivieren. PRINT erzeugt dort ein Zufallsgewicht zwischen 1.0000 g und 3.0000 g und schreibt es direkt nach Excel.
-TARA löscht die Anzeige. Die Ausgabe berücksichtigt immer Ihre aktuellen Einstellungen für Nachkommastellen, Einheit und Dezimaltrennzeichen.
+Im Testmodus wird kein Befehl an eine echte Waage gesendet. TARA löscht dort nur die Anzeige im schwarzen Feld.
+Die Ausgabe berücksichtigt immer Ihre aktuellen Einstellungen für Nachkommastellen, Einheit und Dezimaltrennzeichen.
 
 ? MINI-MODUS:
 Aktivieren Sie diesen Modus in den Einstellungen, wenn das Programm im Weg ist. Es verkleinert sich auf einen winzigen Balken, der immer im Vordergrund schwebt. Bei jeder erfolgreichen Einwaage blitzt er kurz grün auf.
 
 ? PLAUSIBILITÄTS-CHECK:
 Das Programm warnt Sie mit roter Schrift im Datenmonitor, wenn ein Minus-Wert gesendet wird (z.B. nicht tariert) oder die Einwaage unter einem von Ihnen definierten Grenzwert liegt.
+Der Grenzwert ist frei eingabbar (optional mit Minus), mit bis zu 3 Stellen vor dem Komma und bis zu 4 Stellen nach dem Komma.
 
 ? AUTO-SAVE:
 Verlieren Sie nie wieder Daten. Das Programm drückt für Sie nach X Messungen automatisch 'STRG + S' in Excel.
+
+? BACKUP:
+Das Hintergrund-Backup ist standardmäßig aktiv. Jeder gespeicherte Wert wird im Format
+Zeitstempel;Programmname;Wert in den backup-Ordner geschrieben.
 
 ? EINSTELLUNGEN SPEICHERN:
 Alle Einstellungen werden beim Schließen des Programms automatisch gespeichert und beim nächsten Start wieder geladen.
@@ -823,29 +779,17 @@ Bei anhaltenden Problemen prüfen Sie bitte das COM-Kabel und die Baudrate-Einst
         else:
             self.lbl_counter.pack_forget()
 
-    def update_hotkeys(self, *args):
-        keyboard.unhook_all()
-        if self.f9_print_var.get():
-            keyboard.on_release_key('f9', lambda e: self.send_to_scale("P\r\n"))
-        if self.f12_tare_var.get():
-            keyboard.on_release_key('f12', lambda e: self.send_to_scale("T\r\n"))
+    def is_valid_plausi2_limit_format(self, value):
+        cleaned = (value or "").strip()
+        if not cleaned:
+            return False
+        return re.fullmatch(r"-?\d{1,3}(?:[.,]\d{1,4})?", cleaned) is not None
 
-    def send_to_scale(self, command):
-        if self.test_mode_var.get():
-            if "P" in command.upper():
-                self.simulate_test_print()
-                return
-            if "T" in command.upper():
-                self.simulate_test_tare()
-                return
-
-        if self.is_running and self.serial_port and self.serial_port.is_open:
-            try:
-                self.serial_port.write(command.encode('ascii'))
-                cmd_name = "PRINT" if "P" in command else "TARA"
-                self.root.after(0, self.log_to_monitor, f"Befehl gesendet: {cmd_name}", "orange")
-            except Exception as e:
-                pass
+    def get_plausi2_limit_value(self):
+        value = self.plausi2_limit_var.get().strip()
+        if not self.is_valid_plausi2_limit_format(value):
+            return None
+        return float(value.replace(',', '.'))
 
     def log_to_monitor(self, text, color="black"):
         self.monitor_text.config(state="normal")
@@ -918,8 +862,14 @@ Bei anhaltenden Problemen prüfen Sie bitte das COM-Kabel und die Baudrate-Einst
                 os.makedirs("backup", exist_ok=True)
                 filename = datetime.datetime.now().strftime("backup/backup_log_%Y-%m-%d.txt")
                 with open(filename, "a") as f:
-                    time_str = datetime.datetime.now().strftime("%H:%M:%S")
-                    f.write(f"{time_str} | Programm: {self.current_program} | Wert: {raw_data}\n")
+                    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    program_names = {
+                        1: self.name_prog1.get(),
+                        2: self.name_prog2.get(),
+                        3: self.name_prog3.get(),
+                    }
+                    active_program_name = program_names.get(self.current_program, str(self.current_program))
+                    f.write(f"{timestamp};{active_program_name};{raw_data}\n")
             except Exception as e:
                 self.root.after(0, self.log_to_monitor, f"Backup-Fehler: {e}", "red")
 
@@ -932,8 +882,8 @@ Bei anhaltenden Problemen prüfen Sie bitte das COM-Kabel und die Baudrate-Einst
                         
                         if raw_bytes:
                             raw_data = raw_bytes.decode('ascii', errors='ignore').strip()
-                            number_match = re.search(r'-?\d+(?:[.,]\d+)?', raw_data)
-                            numeric_part = number_match.group(0) if number_match else ""
+                            number_match = re.search(r'-?\s*\d+(?:[.,]\d+)?', raw_data)
+                            numeric_part = number_match.group(0).replace(" ", "") if number_match else ""
                             unit_part = ""
                             if number_match:
                                 unit_part = raw_data[number_match.end():].strip()
