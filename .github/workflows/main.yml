@@ -29,10 +29,11 @@ jobs:
         python -c "from PIL import Image; image = Image.open('Icon.PNG').convert('RGBA'); image.save('Icon.ico', format='ICO', sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])"
 
     - name: Vorherige Build-Artefakte entfernen
+      shell: pwsh
       run: |
-        if exist build rmdir /s /q build
-        if exist dist rmdir /s /q dist
-        if exist "MessKomplize.spec" del /f /q "MessKomplize.spec"
+        if (Test-Path build) { Remove-Item build -Recurse -Force }
+        if (Test-Path dist) { Remove-Item dist -Recurse -Force }
+        if (Test-Path "MessKomplize.spec") { Remove-Item "MessKomplize.spec" -Force }
         
     - name: EXE mit PyInstaller bauen
       # Anführungszeichen wegen Leerzeichen im Dateinamen
