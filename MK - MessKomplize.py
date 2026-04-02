@@ -174,8 +174,9 @@ class MessKomplizeApp:
         self.is_running = False
         self.counter = 0
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
-        self.settings_path = os.path.join(self.base_dir, "messkomplize_settings.json")
-        self.settings_backup_path = os.path.join(self.base_dir, "backup", "messkomplize_settings.json")
+        self.runtime_dir = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else self.base_dir
+        self.settings_dir = os.path.join(self.runtime_dir, "backup")
+        self.settings_path = os.path.join(self.settings_dir, "messkomplize_settings.json")
         self.last_successful_port = "COM1"
         self.last_external_hwnd = None
         self.window_tracking_active = False
@@ -217,7 +218,7 @@ class MessKomplizeApp:
         self.decimal_places_var = tk.IntVar(value=4)
         self.test_mode_var = tk.BooleanVar(value=False)
         self.test_display_var = tk.StringVar(value="----")
-        self.settings_file_status_var = tk.StringVar(value="Einstellungen-Datei: messkomplize_settings.json")
+        self.settings_file_status_var = tk.StringVar(value=f"Einstellungen-Datei: {os.path.relpath(self.settings_path, self.runtime_dir)}")
 
         self.load_settings()
         
@@ -364,8 +365,8 @@ class MessKomplizeApp:
             self.last_successful_port = "COM1"
         self.port_var.set(self.last_successful_port)
 
-    def load_settings(self, prefer_backup=False, silent=True):
-        candidate_paths = [self.settings_backup_path, self.settings_path] if prefer_backup else [self.settings_path, self.settings_backup_path]
+    def load_settings(self, silent=True):
+        candidate_paths = [self.settings_path]
         settings = {}
         loaded_path = None
 
@@ -382,17 +383,17 @@ class MessKomplizeApp:
         self.apply_settings_data(settings)
 
         if loaded_path:
-            relative_path = os.path.relpath(loaded_path, self.base_dir)
+            relative_path = os.path.relpath(loaded_path, self.runtime_dir)
             self.update_settings_file_status(f"Einstellungen geladen aus: {relative_path}")
         else:
-            self.update_settings_file_status("Keine Einstellungsdatei gefunden - Standardwerte aktiv")
+            self.update_settings_file_status(f"Keine Einstellungsdatei gefunden - Standardwerte aktiv ({os.path.relpath(self.settings_path, self.runtime_dir)})")
 
         if hasattr(self, "tab_settings"):
             self.refresh_settings_ui()
 
         if not silent and hasattr(self, "monitor_text"):
             if loaded_path:
-                self.log_to_monitor(f"Einstellungen geladen aus: {os.path.relpath(loaded_path, self.base_dir)}", "blue")
+                self.log_to_monitor(f"Einstellungen geladen aus: {os.path.relpath(loaded_path, self.runtime_dir)}", "blue")
             else:
                 self.log_to_monitor("Keine Einstellungsdatei gefunden - Standardwerte aktiv", "blue")
 
@@ -400,30 +401,21 @@ class MessKomplizeApp:
 
     def save_settings(self, silent=True):
         settings = self.get_settings_payload()
-        written_paths = []
+        try:
+            os.makedirs(self.settings_dir, exist_ok=True)
+            with open(self.settings_path, "w", encoding="utf-8") as settings_file:
+                json.dump(settings, settings_file, ensure_ascii=False, indent=2)
 
-        for target_path in (self.settings_path, self.settings_backup_path):
-            try:
-                os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                with open(target_path, "w", encoding="utf-8") as settings_file:
-                    json.dump(settings, settings_file, ensure_ascii=False, indent=2)
-                written_paths.append(target_path)
-            except Exception:
-                continue
-
-        if written_paths:
-            relative_paths = ", ".join(os.path.relpath(path, self.base_dir) for path in written_paths)
-            self.update_settings_file_status(f"Einstellungen gespeichert in: {relative_paths}")
+            relative_path = os.path.relpath(self.settings_path, self.runtime_dir)
+            self.update_settings_file_status(f"Einstellungen gespeichert in: {relative_path}")
             if not silent and hasattr(self, "monitor_text"):
-                self.log_to_monitor(f"Einstellungen gespeichert in: {relative_paths}", "blue")
-        elif not silent and hasattr(self, "monitor_text"):
-            self.log_to_monitor("Einstellungen konnten nicht gespeichert werden.", "red")
+                self.log_to_monitor(f"Einstellungen gespeichert in: {relative_path}", "blue")
+        except Exception as e:
+            if not silent and hasattr(self, "monitor_text"):
+                self.log_to_monitor(f"Einstellungen konnten nicht gespeichert werden: {e}", "red")
 
-    def load_settings_from_main_file(self):
-        self.load_settings(prefer_backup=False, silent=False)
-
-    def load_settings_from_backup_file(self):
-        self.load_settings(prefer_backup=True, silent=False)
+    def load_settings_from_file(self):
+        self.load_settings(silent=False)
 
     def save_settings_from_tab(self):
         self.save_settings(silent=False)
@@ -739,15 +731,11 @@ class MessKomplizeApp:
 
         btn_save_settings = tk.Button(settings_file_frame, text="Einstellungen speichern", command=self.save_settings_from_tab, width=22)
         btn_save_settings.pack(side="left")
-        ToolTip(btn_save_settings, "Speichert alle Einstellungen in messkomplize_settings.json und zusätzlich im backup-Unterordner.")
+        ToolTip(btn_save_settings, "Speichert alle Einstellungen in die Datei backup/messkomplize_settings.json im aktuellen EXE-Ordner.")
 
-        btn_load_settings = tk.Button(settings_file_frame, text="Einstellungen laden", command=self.load_settings_from_main_file, width=20)
+        btn_load_settings = tk.Button(settings_file_frame, text="Einstellungen laden", command=self.load_settings_from_file, width=20)
         btn_load_settings.pack(side="left", padx=(8, 0))
-        ToolTip(btn_load_settings, "Lädt die Einstellungen aus der Hauptdatei. Falls diese fehlt, wird automatisch die Datei aus dem backup-Unterordner verwendet.")
-
-        btn_load_backup_settings = tk.Button(settings_file_frame, text="Backup laden", command=self.load_settings_from_backup_file, width=16)
-        btn_load_backup_settings.pack(side="left", padx=(8, 0))
-        ToolTip(btn_load_backup_settings, "Lädt die Einstellungen direkt aus backup/messkomplize_settings.json.")
+        ToolTip(btn_load_settings, "Lädt die Einstellungen aus backup/messkomplize_settings.json im aktuellen EXE-Ordner.")
 
         lbl_settings_status = tk.Label(f_opt, textvariable=self.settings_file_status_var, fg="blue", justify="left", wraplength=520)
         lbl_settings_status.grid(row=16, column=0, columnspan=2, sticky="w", padx=10, pady=(0, 6))
