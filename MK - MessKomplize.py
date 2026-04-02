@@ -173,7 +173,9 @@ class MessKomplizeApp:
         self.serial_port = None
         self.is_running = False
         self.counter = 0
-        self.settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "messkomplize_settings.json")
+        self.base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.settings_path = os.path.join(self.base_dir, "messkomplize_settings.json")
+        self.settings_backup_path = os.path.join(self.base_dir, "backup", "messkomplize_settings.json")
         self.last_successful_port = "COM1"
         self.last_external_hwnd = None
         self.window_tracking_active = False
@@ -215,6 +217,7 @@ class MessKomplizeApp:
         self.decimal_places_var = tk.IntVar(value=4)
         self.test_mode_var = tk.BooleanVar(value=False)
         self.test_display_var = tk.StringVar(value="----")
+        self.settings_file_status_var = tk.StringVar(value="Einstellungen-Datei: messkomplize_settings.json")
 
         self.load_settings()
         
@@ -262,6 +265,7 @@ class MessKomplizeApp:
         self.counter_var.trace_add("write", self.toggle_counter_visibility)
         self.mini_mode_var.trace_add("write", self.toggle_mini_mode)
         self.test_mode_var.trace_add("write", self.update_test_mode_ui)
+        self.refresh_settings_ui()
 
     def get_available_ports(self):
         return [port.device for port in serial.tools.list_ports.comports()]
@@ -274,14 +278,50 @@ class MessKomplizeApp:
             return available_ports[0]
         return "COM1"
 
-    def load_settings(self):
-        settings = {}
-        try:
-            if os.path.exists(self.settings_path):
-                with open(self.settings_path, "r", encoding="utf-8") as settings_file:
-                    settings = json.load(settings_file)
-        except Exception:
-            settings = {}
+    def get_settings_payload(self):
+        return {
+            "port": self.port_var.get(),
+            "last_successful_port": self.last_successful_port,
+            "baudrate": self.baud_var.get(),
+            "databits": self.databits_var.get(),
+            "parity": self.parity_var.get(),
+            "stopbits": self.stopbits_var.get(),
+            "name_prog1": self.name_prog1.get(),
+            "name_prog2": self.name_prog2.get(),
+            "name_prog3": self.name_prog3.get(),
+            "current_program": self.current_program,
+            "counter_visible": self.counter_var.get(),
+            "auto_reconnect": self.auto_reconnect_var.get(),
+            "plausi1": self.plausi_var.get(),
+            "backup": self.backup_var.get(),
+            "auto_save": self.auto_save_var.get(),
+            "auto_save_x": self.auto_save_x_var.get(),
+            "plausi2": self.plausi2_var.get(),
+            "plausi2_limit": self.plausi2_limit_var.get(),
+            "mini_mode": self.mini_mode_var.get(),
+            "log_clean": self.log_clean_var.get(),
+            "dot_comma": self.dot_comma_var.get(),
+            "unit": self.unit_var.get(),
+            "fixed_decimals": self.fixed_decimals_var.get(),
+            "decimal_places": self.decimal_places_var.get(),
+        }
+
+    def update_settings_file_status(self, text):
+        self.settings_file_status_var.set(text)
+
+    def refresh_settings_ui(self):
+        if hasattr(self, "btn_prog1"):
+            self.set_program(self.current_program)
+        if hasattr(self, "lbl_counter"):
+            self.toggle_counter_visibility()
+        if hasattr(self, "test_status_label"):
+            self.update_test_mode_ui()
+        if hasattr(self, "mini_frame"):
+            self.toggle_mini_mode()
+
+    def apply_settings_data(self, settings):
+        if not settings:
+            return
 
         self.baud_var.set(settings.get("baudrate", self.baud_var.get()))
         self.databits_var.set(settings.get("databits", self.databits_var.get()))
@@ -324,39 +364,69 @@ class MessKomplizeApp:
             self.last_successful_port = "COM1"
         self.port_var.set(self.last_successful_port)
 
-    def save_settings(self):
-        settings = {
-            "port": self.port_var.get(),
-            "last_successful_port": self.last_successful_port,
-            "baudrate": self.baud_var.get(),
-            "databits": self.databits_var.get(),
-            "parity": self.parity_var.get(),
-            "stopbits": self.stopbits_var.get(),
-            "name_prog1": self.name_prog1.get(),
-            "name_prog2": self.name_prog2.get(),
-            "name_prog3": self.name_prog3.get(),
-            "current_program": self.current_program,
-            "counter_visible": self.counter_var.get(),
-            "auto_reconnect": self.auto_reconnect_var.get(),
-            "plausi1": self.plausi_var.get(),
-            "backup": self.backup_var.get(),
-            "auto_save": self.auto_save_var.get(),
-            "auto_save_x": self.auto_save_x_var.get(),
-            "plausi2": self.plausi2_var.get(),
-            "plausi2_limit": self.plausi2_limit_var.get(),
-            "mini_mode": self.mini_mode_var.get(),
-            "log_clean": self.log_clean_var.get(),
-            "dot_comma": self.dot_comma_var.get(),
-            "unit": self.unit_var.get(),
-            "fixed_decimals": self.fixed_decimals_var.get(),
-            "decimal_places": self.decimal_places_var.get(),
-        }
+    def load_settings(self, prefer_backup=False, silent=True):
+        candidate_paths = [self.settings_backup_path, self.settings_path] if prefer_backup else [self.settings_path, self.settings_backup_path]
+        settings = {}
+        loaded_path = None
 
-        try:
-            with open(self.settings_path, "w", encoding="utf-8") as settings_file:
-                json.dump(settings, settings_file, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        for candidate_path in candidate_paths:
+            try:
+                if os.path.exists(candidate_path):
+                    with open(candidate_path, "r", encoding="utf-8") as settings_file:
+                        settings = json.load(settings_file)
+                    loaded_path = candidate_path
+                    break
+            except Exception:
+                continue
+
+        self.apply_settings_data(settings)
+
+        if loaded_path:
+            relative_path = os.path.relpath(loaded_path, self.base_dir)
+            self.update_settings_file_status(f"Einstellungen geladen aus: {relative_path}")
+        else:
+            self.update_settings_file_status("Keine Einstellungsdatei gefunden - Standardwerte aktiv")
+
+        if hasattr(self, "tab_settings"):
+            self.refresh_settings_ui()
+
+        if not silent and hasattr(self, "monitor_text"):
+            if loaded_path:
+                self.log_to_monitor(f"Einstellungen geladen aus: {os.path.relpath(loaded_path, self.base_dir)}", "blue")
+            else:
+                self.log_to_monitor("Keine Einstellungsdatei gefunden - Standardwerte aktiv", "blue")
+
+        return loaded_path is not None
+
+    def save_settings(self, silent=True):
+        settings = self.get_settings_payload()
+        written_paths = []
+
+        for target_path in (self.settings_path, self.settings_backup_path):
+            try:
+                os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                with open(target_path, "w", encoding="utf-8") as settings_file:
+                    json.dump(settings, settings_file, ensure_ascii=False, indent=2)
+                written_paths.append(target_path)
+            except Exception:
+                continue
+
+        if written_paths:
+            relative_paths = ", ".join(os.path.relpath(path, self.base_dir) for path in written_paths)
+            self.update_settings_file_status(f"Einstellungen gespeichert in: {relative_paths}")
+            if not silent and hasattr(self, "monitor_text"):
+                self.log_to_monitor(f"Einstellungen gespeichert in: {relative_paths}", "blue")
+        elif not silent and hasattr(self, "monitor_text"):
+            self.log_to_monitor("Einstellungen konnten nicht gespeichert werden.", "red")
+
+    def load_settings_from_main_file(self):
+        self.load_settings(prefer_backup=False, silent=False)
+
+    def load_settings_from_backup_file(self):
+        self.load_settings(prefer_backup=True, silent=False)
+
+    def save_settings_from_tab(self):
+        self.save_settings(silent=False)
 
     def on_close(self):
         self.save_settings()
@@ -661,6 +731,26 @@ class MessKomplizeApp:
         sp_decimals.pack(side="left", padx=(5, 0))
         tk.Label(frm_decimals, text=" Stellen").pack(side="left")
         ToolTip(frm_decimals, "Wenn aktiviert, wird der Zahlenwert immer auf die eingestellte Anzahl an Nachkommastellen formatiert. Wenn deaktiviert, werden alle von der Waage gelieferten Nachkommastellen unverändert übernommen.")
+
+        tk.Frame(f_opt, height=1, bg="grey").grid(row=14, column=0, columnspan=2, sticky="we", pady=5)
+
+        settings_file_frame = tk.Frame(f_opt)
+        settings_file_frame.grid(row=15, column=0, columnspan=2, sticky="w", padx=10, pady=4)
+
+        btn_save_settings = tk.Button(settings_file_frame, text="Einstellungen speichern", command=self.save_settings_from_tab, width=22)
+        btn_save_settings.pack(side="left")
+        ToolTip(btn_save_settings, "Speichert alle Einstellungen in messkomplize_settings.json und zusätzlich im backup-Unterordner.")
+
+        btn_load_settings = tk.Button(settings_file_frame, text="Einstellungen laden", command=self.load_settings_from_main_file, width=20)
+        btn_load_settings.pack(side="left", padx=(8, 0))
+        ToolTip(btn_load_settings, "Lädt die Einstellungen aus der Hauptdatei. Falls diese fehlt, wird automatisch die Datei aus dem backup-Unterordner verwendet.")
+
+        btn_load_backup_settings = tk.Button(settings_file_frame, text="Backup laden", command=self.load_settings_from_backup_file, width=16)
+        btn_load_backup_settings.pack(side="left", padx=(8, 0))
+        ToolTip(btn_load_backup_settings, "Lädt die Einstellungen direkt aus backup/messkomplize_settings.json.")
+
+        lbl_settings_status = tk.Label(f_opt, textvariable=self.settings_file_status_var, fg="blue", justify="left", wraplength=520)
+        lbl_settings_status.grid(row=16, column=0, columnspan=2, sticky="w", padx=10, pady=(0, 6))
 
     def build_test_tab(self):
         header = tk.Label(self.tab_test, text="Testmodus für simulierte Waagenwerte", font=("Arial", 12, "bold"))
