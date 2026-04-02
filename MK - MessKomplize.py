@@ -451,6 +451,19 @@ class MessKomplizeApp:
         self.ampel_canvas = tk.Canvas(top_frame, width=30, height=30, highlightthickness=0)
         self.ampel_canvas.pack(side="left")
         self.ampel_light = self.ampel_canvas.create_oval(5, 5, 25, 25, fill="red")
+
+        self.btn_mini_toggle = RoundedButton(
+            top_frame,
+            text="Mini-Modus",
+            font=("Arial", 10, "bold"),
+            width=150,
+            height=38,
+            radius=12,
+            bg="lightgrey",
+            command=lambda: self.mini_mode_var.set(not self.mini_mode_var.get())
+        )
+        self.btn_mini_toggle.pack(side="right")
+        ToolTip(self.btn_mini_toggle, "Schaltet direkt in den schwebenden Mini-Modus um und zeigt dort Status, Programm und letztes Gewicht an.")
         
         self.status_label = tk.Label(top_frame, text="Getrennt", font=("Arial", 11, "bold"), fg="red")
         self.status_label.pack(side="left", padx=10)
@@ -497,22 +510,6 @@ class MessKomplizeApp:
         )
         self.btn_prog3.grid(row=0, column=2, padx=10)
 
-        mini_toggle_frame = tk.Frame(self.tab_main)
-        mini_toggle_frame.pack(pady=(0, 10))
-
-        self.btn_mini_toggle = RoundedButton(
-            mini_toggle_frame,
-            text="Mini-Modus",
-            font=("Arial", 11, "bold"),
-            width=170,
-            height=44,
-            radius=14,
-            bg="lightgrey",
-            command=lambda: self.mini_mode_var.set(not self.mini_mode_var.get())
-        )
-        self.btn_mini_toggle.pack()
-        ToolTip(self.btn_mini_toggle, "Schaltet direkt in den schwebenden Mini-Modus um und zeigt dort Status, Programm und letztes Gewicht an.")
-        
         self.lbl_counter = tk.Label(self.tab_main, text="Messungen: 0", font=("Arial", 11, "bold"), fg="blue")
         
         tk.Label(self.tab_main, text="--- Datenmonitor ---", font=("Arial", 10, "bold")).pack(pady=(20, 5))
