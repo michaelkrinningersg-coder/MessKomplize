@@ -7,11 +7,36 @@ import threading
 import re
 import ctypes
 import os
+import sys
 import datetime
 import time
 import glob
 import json
 import random
+
+
+def get_asset_path(filename):
+    base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, filename)
+
+
+def apply_window_icon(root):
+    ico_path = get_asset_path("Icon.ico")
+    png_path = get_asset_path("Icon.PNG")
+
+    try:
+        if os.path.exists(ico_path):
+            root.iconbitmap(ico_path)
+    except Exception:
+        pass
+
+    try:
+        if os.path.exists(png_path):
+            icon_image = tk.PhotoImage(file=png_path)
+            root.iconphoto(True, icon_image)
+            root._window_icon_image = icon_image
+    except Exception:
+        pass
 
 # --- Hilfsklasse für die Tooltips (Mouseover-Texte) ---
 class ToolTip:
@@ -999,5 +1024,6 @@ Bei anhaltenden Problemen prüfen Sie bitte das COM-Kabel und die Baudrate-Einst
 
 if __name__ == "__main__":
     root = tk.Tk()
+    apply_window_icon(root)
     app = MessKomplizeApp(root)
     root.mainloop()
