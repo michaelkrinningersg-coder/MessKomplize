@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import ttk
 import threading
 import re
+import ctypes
 import os
 import datetime
 import time
@@ -149,6 +150,8 @@ class MessKomplizeApp:
         self.counter = 0
         self.settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "messkomplize_settings.json")
         self.last_successful_port = "COM1"
+        self.last_external_hwnd = None
+        self.window_tracking_active = False
         
         # --- Standard-Variablen für Einstellungen ---
         self.port_var = tk.StringVar(value="COM1")
@@ -161,6 +164,8 @@ class MessKomplizeApp:
         self.name_prog2 = tk.StringVar(value="WGH 1")
         self.name_prog3 = tk.StringVar(value="WGH 2")
         self.current_program = 1 
+        self.last_measurement_var = tk.StringVar(value="----")
+        self.mini_program_var = tk.StringVar(value=self.name_prog1.get())
         
         # Neue & Alte Optionen (Standard: Aus)
         self.counter_var = tk.BooleanVar(value=False)
@@ -191,6 +196,7 @@ class MessKomplizeApp:
         # UI Aufbauen
         self.setup_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.root.after(300, self.start_window_tracking)
         self.root.after(1000, self.auto_start_connection)
         
         # Wenn Log-Aufräumer aktiv, direkt beim Start einmal aufräumen
@@ -199,10 +205,14 @@ class MessKomplizeApp:
     def setup_ui(self):
         # Mini-Mode Frame (versteckt beim Start)
         self.mini_frame = tk.Frame(self.root, bg="#333333")
-        self.lbl_mini_status = tk.Label(self.mini_frame, text="MK - MessKomplize: Getrennt", font=("Arial", 11, "bold"), fg="white", bg="#333333")
-        self.lbl_mini_status.pack(pady=10)
-        self.btn_mini_exit = tk.Button(self.mini_frame, text="Vollbild", command=lambda: self.mini_mode_var.set(False))
-        self.btn_mini_exit.pack()
+        self.lbl_mini_status = tk.Label(self.mini_frame, text="MK - MessKomplize: Getrennt", font=("Arial", 9, "bold"), fg="white", bg="#333333")
+        self.lbl_mini_status.pack(pady=(6, 2))
+        self.lbl_mini_program = tk.Label(self.mini_frame, textvariable=self.mini_program_var, font=("Arial", 9, "bold"), fg="#d8ffd8", bg="#333333")
+        self.lbl_mini_program.pack()
+        self.lbl_mini_weight = tk.Label(self.mini_frame, textvariable=self.last_measurement_var, font=("Courier New", 12, "bold"), fg="#33ff66", bg="#333333")
+        self.lbl_mini_weight.pack(pady=(1, 4))
+        self.btn_mini_exit = tk.Button(self.mini_frame, text="Vollbild", command=lambda: self.mini_mode_var.set(False), height=1)
+        self.btn_mini_exit.pack(pady=(0, 6))
         
         # Notebook für Tabs
         self.notebook = ttk.Notebook(self.root)
@@ -326,9 +336,59 @@ class MessKomplizeApp:
     def on_close(self):
         self.save_settings()
         self.is_running = False
+        self.window_tracking_active = False
         if self.serial_port and self.serial_port.is_open:
             self.serial_port.close()
         self.root.destroy()
+
+    def start_window_tracking(self):
+        if os.name != "nt":
+            return
+        self.window_tracking_active = True
+        self.track_last_external_window()
+
+    def track_last_external_window(self):
+        if not self.window_tracking_active or os.name != "nt":
+            return
+
+        foreground_hwnd = self.get_foreground_window_handle()
+        if foreground_hwnd and not self.is_own_window(foreground_hwnd):
+            self.last_external_hwnd = foreground_hwnd
+
+        self.root.after(250, self.track_last_external_window)
+
+    def get_foreground_window_handle(self):
+        if os.name != "nt":
+            return None
+        try:
+            return ctypes.windll.user32.GetForegroundWindow()
+        except Exception:
+            return None
+
+    def is_own_window(self, hwnd):
+        if not hwnd:
+            return False
+        try:
+            return int(hwnd) == int(self.root.winfo_id())
+        except Exception:
+            return False
+
+    def restore_last_external_window(self):
+        if os.name != "nt":
+            return False
+        if not self.last_external_hwnd:
+            return False
+
+        try:
+            user32 = ctypes.windll.user32
+            if not user32.IsWindow(self.last_external_hwnd):
+                self.last_external_hwnd = None
+                return False
+            user32.ShowWindow(self.last_external_hwnd, 5)
+            user32.SetForegroundWindow(self.last_external_hwnd)
+            return True
+        except Exception:
+            return False
 
     def format_measurement_output(self, numeric_part, unit_part=""):
         numeric_output = numeric_part
@@ -347,6 +407,8 @@ class MessKomplizeApp:
         return numeric_output
 
     def commit_measurement(self, raw_data, processed_data, numeric_reference, source_label="Empfangen"):
+        self.last_measurement_var.set(str(processed_data))
+
         if self.plausi_var.get() and "-" in raw_data:
             self.root.after(0, self.log_to_monitor, f"WARNUNG PLAUSI 1: Negativer Wert! ({raw_data})", "red")
         else:
@@ -393,9 +455,6 @@ class MessKomplizeApp:
         self.status_label = tk.Label(top_frame, text="Getrennt", font=("Arial", 11, "bold"), fg="red")
         self.status_label.pack(side="left", padx=10)
         
-        self.connect_btn = tk.Button(top_frame, text="Verbinden", command=self.toggle_connection, bg="lightgrey", width=12)
-        self.connect_btn.pack(side="right")
-        
         tk.Frame(self.tab_main, height=2, bd=1, relief="sunken").pack(fill="x", padx=15, pady=10)
         
         btn_frame = tk.Frame(self.tab_main)
@@ -437,6 +496,22 @@ class MessKomplizeApp:
             command=lambda: self.set_program(3)
         )
         self.btn_prog3.grid(row=0, column=2, padx=10)
+
+        mini_toggle_frame = tk.Frame(self.tab_main)
+        mini_toggle_frame.pack(pady=(0, 10))
+
+        self.btn_mini_toggle = RoundedButton(
+            mini_toggle_frame,
+            text="Mini-Modus",
+            font=("Arial", 11, "bold"),
+            width=170,
+            height=44,
+            radius=14,
+            bg="lightgrey",
+            command=lambda: self.mini_mode_var.set(not self.mini_mode_var.get())
+        )
+        self.btn_mini_toggle.pack()
+        ToolTip(self.btn_mini_toggle, "Schaltet direkt in den schwebenden Mini-Modus um und zeigt dort Status, Programm und letztes Gewicht an.")
         
         self.lbl_counter = tk.Label(self.tab_main, text="Messungen: 0", font=("Arial", 11, "bold"), fg="blue")
         
@@ -475,6 +550,10 @@ class MessKomplizeApp:
         cb_stop = ttk.Combobox(f_port, textvariable=self.stopbits_var, values=["1", "2"], width=8, state="readonly")
         cb_stop.grid(row=2, column=3, pady=2)
         ToolTip(cb_stop, "Anzahl der Stopbits der Waage. Standard ist '1'. Nur auf '2' stellen, wenn das Handbuch der Waage dies ausdrücklich vorschreibt.")
+
+        self.connect_btn = tk.Button(f_port, text="Verbinden", command=self.toggle_connection, bg="lightgrey", width=12)
+        self.connect_btn.grid(row=0, column=4, rowspan=3, padx=(25, 10), pady=2, sticky="ns")
+        ToolTip(self.connect_btn, "Stellt die Verbindung zur Waage her oder trennt sie wieder.")
 
         # 2. Programme
         f_prog = tk.LabelFrame(self.tab_settings, text="Namen der Programme", font=("Arial", 10, "bold"))
@@ -612,7 +691,7 @@ class MessKomplizeApp:
             state="disabled"
         )
         self.test_print_btn.grid(row=0, column=0, padx=10)
-        ToolTip(self.test_print_btn, "Erzeugt einen simulierten Messwert und schreibt ihn mit den aktuellen Einstellungen nach Excel.")
+        ToolTip(self.test_print_btn, "Erzeugt einen simulierten Messwert und schreibt ihn mit den aktuellen Einstellungen in das zuletzt aktive Fremdfenster.")
 
         self.test_tare_btn = RoundedButton(
             btn_frame,
@@ -650,6 +729,14 @@ class MessKomplizeApp:
         raw_data = f"{numeric_part} g"
         processed_data = self.format_measurement_output(numeric_part, "g")
         self.test_display_var.set(processed_data)
+
+        if os.name == "nt":
+            if not self.restore_last_external_window():
+                self.log_to_monitor("Testmodus PRINT abgebrochen: Kein zuletzt aktives Fremdfenster gefunden.", "orange")
+                return
+            self.root.after(180, lambda: self.commit_measurement(raw_data, processed_data, numeric_part, "Testmodus PRINT"))
+            return
+
         self.commit_measurement(raw_data, processed_data, numeric_part, "Testmodus PRINT")
 
     def simulate_test_tare(self):
@@ -658,6 +745,7 @@ class MessKomplizeApp:
             return
 
         self.test_display_var.set("----")
+        self.last_measurement_var.set("----")
         self.log_to_monitor("Testmodus TARA: Gewicht gelöscht.", "orange")
 
     def build_help_tab(self):
@@ -677,10 +765,13 @@ Klicken Sie auf den Button, um das aktive Programm zu wechseln. Das aktive Progr
 ? TESTMODUS:
 Im Tab 'Testmodus' können Sie eine simulierte Waage aktivieren. PRINT erzeugt dort ein Zufallsgewicht zwischen 1.0000 g und 3.0000 g und schreibt es direkt nach Excel.
 Im Testmodus wird kein Befehl an eine echte Waage gesendet. TARA löscht dort nur die Anzeige im schwarzen Feld.
+Vor dem Schreiben versucht das Programm, das zuletzt aktive Fremdfenster wieder in den Vordergrund zu holen.
 Die Ausgabe berücksichtigt immer Ihre aktuellen Einstellungen für Nachkommastellen, Einheit und Dezimaltrennzeichen.
 
 ? MINI-MODUS:
-Aktivieren Sie diesen Modus in den Einstellungen, wenn das Programm im Weg ist. Es verkleinert sich auf einen winzigen Balken, der immer im Vordergrund schwebt. Bei jeder erfolgreichen Einwaage blitzt er kurz grün auf.
+Aktivieren Sie diesen Modus in den Einstellungen oder direkt im Tab 'Programm', wenn das Programm im Weg ist.
+Es verkleinert sich auf ein kleines Fenster, das immer im Vordergrund schwebt und den Verbindungsstatus, das aktive Programm und das zuletzt erfasste Gewicht anzeigt.
+Bei jeder erfolgreichen Einwaage blitzt der Mini-Modus kurz grün auf.
 
 ? PLAUSIBILITÄTS-CHECK:
 Das Programm warnt Sie mit roter Schrift im Datenmonitor, wenn ein Minus-Wert gesendet wird (z.B. nicht tariert) oder die Einwaage unter einem von Ihnen definierten Grenzwert liegt.
@@ -727,7 +818,7 @@ Bei anhaltenden Problemen prüfen Sie bitte das COM-Kabel und die Baudrate-Einst
             self.notebook.pack_forget()
             self.mini_frame.pack(fill="both", expand=True)
             self.root.attributes('-topmost', True)
-            self.root.geometry("350x80")
+            self.root.geometry("260x120")
         else:
             self.mini_frame.pack_forget()
             self.notebook.pack(fill="both", expand=True)
@@ -738,11 +829,15 @@ Bei anhaltenden Problemen prüfen Sie bitte das COM-Kabel und die Baudrate-Einst
         if self.mini_mode_var.get():
             self.mini_frame.config(bg="lime green")
             self.lbl_mini_status.config(bg="lime green")
+            self.lbl_mini_program.config(bg="lime green")
+            self.lbl_mini_weight.config(bg="lime green")
             self.root.after(200, self.reset_visual_flash)
 
     def reset_visual_flash(self):
         self.mini_frame.config(bg="#333333")
         self.lbl_mini_status.config(bg="#333333")
+        self.lbl_mini_program.config(bg="#333333")
+        self.lbl_mini_weight.config(bg="#333333")
 
     def clean_old_logs(self):
         if self.log_clean_var.get():
@@ -765,12 +860,15 @@ Bei anhaltenden Problemen prüfen Sie bitte das COM-Kabel und die Baudrate-Einst
         
         if prog_id == 1:
             self.btn_prog1.config(bg="lightgreen")
+            self.mini_program_var.set(self.name_prog1.get())
             self.log_to_monitor(f"--- Programm gewechselt: {self.name_prog1.get()} (Zeilensprung) ---", "blue")
         elif prog_id == 2:
             self.btn_prog2.config(bg="lightgreen")
+            self.mini_program_var.set(self.name_prog2.get())
             self.log_to_monitor(f"--- Programm gewechselt: {self.name_prog2.get()} (Spaltensprung) ---", "blue")
         elif prog_id == 3:
             self.btn_prog3.config(bg="lightgreen")
+            self.mini_program_var.set(self.name_prog3.get())
             self.log_to_monitor(f"--- Programm gewechselt: {self.name_prog3.get()} (Zeilensprung) ---", "blue")
 
     def toggle_counter_visibility(self, *args):
