@@ -14,6 +14,13 @@ import glob
 import json
 import random
 
+try:
+    import pythoncom
+    import win32com.client
+except ImportError:
+    pythoncom = None
+    win32com = None
+
 
 def get_asset_path(filename):
     base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
@@ -193,6 +200,7 @@ class MessKomplizeApp:
         self.name_prog3 = tk.StringVar(value="WGH 2")
         self.current_program = 1 
         self.last_measurement_var = tk.StringVar(value="----")
+        self.last_backup_context_var = tk.StringVar(value="Backup-Zusatz: ----")
         self.mini_program_var = tk.StringVar(value=self.name_prog1.get())
         
         # Neue & Alte Optionen (Standard: Aus)
@@ -200,6 +208,9 @@ class MessKomplizeApp:
         self.auto_reconnect_var = tk.BooleanVar(value=False)
         self.plausi_var = tk.BooleanVar(value=False)
         self.backup_var = tk.BooleanVar(value=True)
+        self.backup_context_var = tk.BooleanVar(value=False)
+        self.backup_context_columns_left_var = tk.IntVar(value=2)
+        self.backup_context_warning_logged = False
         
         # V1.0 Exklusiv-Optionen
         self.auto_save_var = tk.BooleanVar(value=False)
@@ -239,7 +250,9 @@ class MessKomplizeApp:
         self.lbl_mini_program = tk.Label(self.mini_frame, textvariable=self.mini_program_var, font=("Arial", 9, "bold"), fg="#d8ffd8", bg="#333333")
         self.lbl_mini_program.pack()
         self.lbl_mini_weight = tk.Label(self.mini_frame, textvariable=self.last_measurement_var, font=("Courier New", 12, "bold"), fg="#33ff66", bg="#333333")
-        self.lbl_mini_weight.pack(pady=(1, 4))
+        self.lbl_mini_weight.pack(pady=(1, 2))
+        self.lbl_mini_context = tk.Label(self.mini_frame, textvariable=self.last_backup_context_var, font=("Arial", 8, "bold"), fg="#ffe08a", bg="#333333")
+        self.lbl_mini_context.pack(pady=(0, 4))
         self.btn_mini_exit = tk.Button(self.mini_frame, text="Vollbild", command=lambda: self.mini_mode_var.set(False), height=1)
         self.btn_mini_exit.pack(pady=(0, 6))
         
@@ -295,6 +308,8 @@ class MessKomplizeApp:
             "auto_reconnect": self.auto_reconnect_var.get(),
             "plausi1": self.plausi_var.get(),
             "backup": self.backup_var.get(),
+            "backup_context": self.backup_context_var.get(),
+            "backup_context_columns_left": self.backup_context_columns_left_var.get(),
             "auto_save": self.auto_save_var.get(),
             "auto_save_x": self.auto_save_x_var.get(),
             "plausi2": self.plausi2_var.get(),
@@ -337,6 +352,8 @@ class MessKomplizeApp:
         self.auto_reconnect_var.set(settings.get("auto_reconnect", self.auto_reconnect_var.get()))
         self.plausi_var.set(settings.get("plausi1", self.plausi_var.get()))
         self.backup_var.set(settings.get("backup", self.backup_var.get()))
+        self.backup_context_var.set(settings.get("backup_context", self.backup_context_var.get()))
+        self.backup_context_columns_left_var.set(settings.get("backup_context_columns_left", self.backup_context_columns_left_var.get()))
         self.auto_save_var.set(settings.get("auto_save", self.auto_save_var.get()))
         self.auto_save_x_var.set(settings.get("auto_save_x", self.auto_save_x_var.get()))
         self.plausi2_var.set(settings.get("plausi2", self.plausi2_var.get()))
@@ -493,6 +510,83 @@ class MessKomplizeApp:
             return f"{numeric_output} {unit_part}".strip()
         return numeric_output
 
+    def report_backup_context_issue(self, message):
+        if self.backup_context_warning_logged:
+            return
+        self.backup_context_warning_logged = True
+        if hasattr(self, "monitor_text"):
+            self.root.after(0, self.log_to_monitor, message, "orange")
+
+    def clear_backup_context_issue(self):
+        self.backup_context_warning_logged = False
+
+    def normalize_backup_context_value(self, value):
+        if value is None:
+            return ""
+        return str(value).strip().replace("\n", " ").replace("\r", " ")
+
+    def update_backup_context_display(self, backup_context_value):
+        normalized_value = self.normalize_backup_context_value(backup_context_value)
+        if self.backup_context_var.get():
+            display_value = normalized_value or "leer"
+        else:
+            display_value = "aus"
+        self.last_backup_context_var.set(f"Backup-Zusatz: {display_value}")
+
+    def get_backup_context_value(self):
+        if not self.backup_var.get() or not self.backup_context_var.get():
+            return ""
+
+        if os.name != "nt":
+            self.report_backup_context_issue("Backup-Zusatzspalte ist nur unter Windows mit Desktop-Excel verfügbar.")
+            return ""
+
+        if pythoncom is None or win32com is None:
+            self.report_backup_context_issue("Backup-Zusatzspalte konnte nicht initialisiert werden: Excel-Schnittstelle fehlt.")
+            return ""
+
+        try:
+            columns_left = int(self.backup_context_columns_left_var.get())
+        except Exception:
+            self.report_backup_context_issue("Backup-Zusatzspalte deaktiviert: Ungültige Anzahl Spalten links.")
+            return ""
+
+        if columns_left < 0:
+            self.report_backup_context_issue("Backup-Zusatzspalte deaktiviert: Die Anzahl Spalten links muss 0 oder größer sein.")
+            return ""
+
+        initialized = False
+        try:
+            pythoncom.CoInitialize()
+            initialized = True
+            excel = win32com.client.GetActiveObject("Excel.Application")
+            active_cell = getattr(excel, "ActiveCell", None)
+            if active_cell is None:
+                self.report_backup_context_issue("Backup-Zusatzspalte leer: Keine aktive Excel-Zelle gefunden.")
+                return ""
+
+            target_column = int(active_cell.Column) - columns_left
+            if target_column < 1:
+                self.report_backup_context_issue("Backup-Zusatzspalte leer: Der Spaltenversatz liegt links außerhalb des Arbeitsblatts.")
+                return ""
+
+            context_cell = active_cell.Worksheet.Cells(active_cell.Row, target_column)
+            context_value = getattr(context_cell, "Text", "")
+            if context_value in (None, ""):
+                context_value = getattr(context_cell, "Value", "")
+
+            self.clear_backup_context_issue()
+            return self.normalize_backup_context_value(context_value)
+        except Exception:
+            self.report_backup_context_issue("Backup-Zusatzspalte leer: Excel konnte nicht ausgelesen werden.")
+            return ""
+        finally:
+            if initialized:
+                try:
+                    pythoncom.CoUninitialize()
+                except Exception:
+                    pass
+
     def commit_measurement(self, raw_data, processed_data, numeric_reference, source_label="Empfangen"):
         self.last_measurement_var.set(str(processed_data))
 
@@ -512,7 +606,12 @@ class MessKomplizeApp:
             except Exception:
                 pass
 
-        self.save_to_backup(processed_data)
+        backup_context_value = self.get_backup_context_value()
+        self.update_backup_context_display(backup_context_value)
+        if self.backup_context_var.get():
+            visible_context = self.normalize_backup_context_value(backup_context_value) or "leer"
+            self.root.after(0, self.log_to_monitor, f"Backup-Zusatzwert: {visible_context}", "blue")
+        self.save_to_backup(processed_data, backup_context_value)
         self.root.after(0, self.trigger_visual_flash)
 
         self.counter += 1
@@ -700,23 +799,40 @@ class MessKomplizeApp:
         cb_backup = tk.Checkbutton(f_opt, text="Hintergrund-Backup (in /backup Ordner speichern)", variable=self.backup_var)
         cb_backup.grid(row=8, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         ToolTip(cb_backup, "Speichert jeden Wert sicherheitshalber in eine Textdatei, falls Excel abstürzt.")
+
+        frm_backup_context = tk.Frame(f_opt)
+        frm_backup_context.grid(row=9, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        cb_backup_context = tk.Checkbutton(
+            frm_backup_context,
+            text="Zusatzwert aus derselben Excel-Zeile mit ins Backup schreiben",
+            variable=self.backup_context_var
+        )
+        cb_backup_context.pack(side="left")
+        ToolTip(cb_backup_context, "Liest unter Windows mit Desktop-Excel vor dem Schreiben einen Zusatzwert aus derselben Zeile aus.")
+
+        frm_backup_offset = tk.Frame(f_opt)
+        frm_backup_offset.grid(row=10, column=0, columnspan=2, sticky="w", padx=28, pady=2)
+        tk.Label(frm_backup_offset, text="Spalten links von der Messzelle:").pack(side="left")
+        sp_backup_offset = tk.Spinbox(frm_backup_offset, from_=0, to=50, textvariable=self.backup_context_columns_left_var, width=4)
+        sp_backup_offset.pack(side="left", padx=(5, 0))
+        ToolTip(frm_backup_offset, "Beispiel: 2 liest den Wert aus derselben Zeile zwei Spalten links von der aktiven Zielzelle.")
         
         cb_clean = tk.Checkbutton(f_opt, text="Log-Aufräumer (Backups löschen, die älter als 30 Tage sind)", variable=self.log_clean_var)
-        cb_clean.grid(row=9, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        cb_clean.grid(row=11, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         ToolTip(cb_clean, "Hält deine Festplatte sauber, indem alte Log-Dateien automatisch vernichtet werden.")
 
-        tk.Frame(f_opt, height=1, bg="grey").grid(row=10, column=0, columnspan=2, sticky="we", pady=5)
+        tk.Frame(f_opt, height=1, bg="grey").grid(row=12, column=0, columnspan=2, sticky="we", pady=5)
 
         cb_dotcomma = tk.Checkbutton(f_opt, text="Dezimalpunkt automatisch als Komma darstellen ('.' → ',')", variable=self.dot_comma_var)
-        cb_dotcomma.grid(row=11, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        cb_dotcomma.grid(row=13, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         ToolTip(cb_dotcomma, "Wandelt den Dezimalpunkt aus den Waagendaten automatisch in ein Komma um (z.B. '1.234' → '1,234'). Empfohlen für Excel mit deutscher Spracheinstellung. Standardmäßig aktiv.")
 
         cb_unit = tk.Checkbutton(f_opt, text="Einheit mit erfassen (Einheit der Waage in Zelle schreiben)", variable=self.unit_var)
-        cb_unit.grid(row=12, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        cb_unit.grid(row=14, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         ToolTip(cb_unit, "Schreibt die von der Waage gesendete Einheit (z.B. 'g', 'mg', 'kg') mit in die Excel-Zelle. Deaktiviert: nur der reine Zahlenwert wird eingetragen, empfohlen für Berechnungen.")
 
         frm_decimals = tk.Frame(f_opt)
-        frm_decimals.grid(row=13, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        frm_decimals.grid(row=15, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         cb_decimals = tk.Checkbutton(frm_decimals, text="Feste Nachkommastellen verwenden:", variable=self.fixed_decimals_var)
         cb_decimals.pack(side="left")
         sp_decimals = tk.Spinbox(frm_decimals, from_=0, to=10, textvariable=self.decimal_places_var, width=4)
@@ -724,10 +840,10 @@ class MessKomplizeApp:
         tk.Label(frm_decimals, text=" Stellen").pack(side="left")
         ToolTip(frm_decimals, "Wenn aktiviert, wird der Zahlenwert immer auf die eingestellte Anzahl an Nachkommastellen formatiert. Wenn deaktiviert, werden alle von der Waage gelieferten Nachkommastellen unverändert übernommen.")
 
-        tk.Frame(f_opt, height=1, bg="grey").grid(row=14, column=0, columnspan=2, sticky="we", pady=5)
+        tk.Frame(f_opt, height=1, bg="grey").grid(row=16, column=0, columnspan=2, sticky="we", pady=5)
 
         settings_file_frame = tk.Frame(f_opt)
-        settings_file_frame.grid(row=15, column=0, columnspan=2, sticky="w", padx=10, pady=4)
+        settings_file_frame.grid(row=17, column=0, columnspan=2, sticky="w", padx=10, pady=4)
 
         btn_save_settings = tk.Button(settings_file_frame, text="Einstellungen speichern", command=self.save_settings_from_tab, width=22)
         btn_save_settings.pack(side="left")
@@ -738,7 +854,7 @@ class MessKomplizeApp:
         ToolTip(btn_load_settings, "Lädt die Einstellungen aus backup/messkomplize_settings.json im aktuellen EXE-Ordner.")
 
         lbl_settings_status = tk.Label(f_opt, textvariable=self.settings_file_status_var, fg="blue", justify="left", wraplength=520)
-        lbl_settings_status.grid(row=16, column=0, columnspan=2, sticky="w", padx=10, pady=(0, 6))
+        lbl_settings_status.grid(row=18, column=0, columnspan=2, sticky="w", padx=10, pady=(0, 6))
 
     def build_test_tab(self):
         header = tk.Label(self.tab_test, text="Testmodus für simulierte Waagenwerte", font=("Arial", 12, "bold"))
@@ -883,6 +999,8 @@ Verlieren Sie nie wieder Daten. Das Programm drückt für Sie nach X Messungen a
 ? BACKUP:
 Das Hintergrund-Backup ist standardmäßig aktiv. Jeder gespeicherte Wert wird im Format
 Zeitstempel;Programmname;Wert in den backup-Ordner geschrieben.
+Optional kann zusätzlich ein Wert aus derselben Excel-Zeile in einer vierten Spalte gesichert werden, z.B. eine Probenkennung zwei Spalten links von der Messzelle.
+Diese Zusatzspalte funktioniert nur unter Windows mit installiertem Desktop-Excel. Wenn Excel nicht ausgelesen werden kann, bleibt das Zusatzfeld leer und die Messung läuft trotzdem weiter.
 
 ? EINSTELLUNGEN SPEICHERN:
 Alle Einstellungen werden beim Schließen des Programms automatisch gespeichert und beim nächsten Start wieder geladen.
@@ -918,7 +1036,7 @@ Bei anhaltenden Problemen prüfen Sie bitte das COM-Kabel und die Baudrate-Einst
             self.notebook.pack_forget()
             self.mini_frame.pack(fill="both", expand=True)
             self.root.attributes('-topmost', True)
-            self.root.geometry("260x120")
+            self.root.geometry("260x145")
         else:
             self.mini_frame.pack_forget()
             self.notebook.pack(fill="both", expand=True)
@@ -931,6 +1049,7 @@ Bei anhaltenden Problemen prüfen Sie bitte das COM-Kabel und die Baudrate-Einst
             self.lbl_mini_status.config(bg="lime green")
             self.lbl_mini_program.config(bg="lime green")
             self.lbl_mini_weight.config(bg="lime green")
+            self.lbl_mini_context.config(bg="lime green")
             self.root.after(200, self.reset_visual_flash)
 
     def reset_visual_flash(self):
@@ -938,6 +1057,7 @@ Bei anhaltenden Problemen prüfen Sie bitte das COM-Kabel und die Baudrate-Einst
         self.lbl_mini_status.config(bg="#333333")
         self.lbl_mini_program.config(bg="#333333")
         self.lbl_mini_weight.config(bg="#333333")
+        self.lbl_mini_context.config(bg="#333333")
 
     def clean_old_logs(self):
         if self.log_clean_var.get():
@@ -1054,7 +1174,7 @@ Bei anhaltenden Problemen prüfen Sie bitte das COM-Kabel und die Baudrate-Einst
         self.update_status(False, "Getrennt")
         self.log_to_monitor("--- Verbindung manuell getrennt ---", "blue")
 
-    def save_to_backup(self, raw_data):
+    def save_to_backup(self, raw_data, backup_context_value=""):
         if self.backup_var.get():
             try:
                 os.makedirs("backup", exist_ok=True)
@@ -1067,7 +1187,11 @@ Bei anhaltenden Problemen prüfen Sie bitte das COM-Kabel und die Baudrate-Einst
                         3: self.name_prog3.get(),
                     }
                     active_program_name = program_names.get(self.current_program, str(self.current_program))
-                    f.write(f"{timestamp};{active_program_name};{raw_data}\n")
+                    if self.backup_context_var.get():
+                        normalized_context = self.normalize_backup_context_value(backup_context_value)
+                        f.write(f"{timestamp};{active_program_name};{raw_data};{normalized_context}\n")
+                    else:
+                        f.write(f"{timestamp};{active_program_name};{raw_data}\n")
             except Exception as e:
                 self.root.after(0, self.log_to_monitor, f"Backup-Fehler: {e}", "red")
 

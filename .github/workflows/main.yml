@@ -22,23 +22,33 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+        pip install pillow
 
     - name: Icon fuer EXE erzeugen
       run: |
-        pip install pillow
         python -c "from PIL import Image; image = Image.open('Icon.PNG').convert('RGBA'); image.save('Icon.ico', format='ICO', sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])"
+
+    - name: Vorherige Build-Artefakte entfernen
+      run: |
+        if exist build rmdir /s /q build
+        if exist dist rmdir /s /q dist
+        if exist "MessKomplize.spec" del /f /q "MessKomplize.spec"
         
     - name: EXE mit PyInstaller bauen
       # Anführungszeichen wegen Leerzeichen im Dateinamen
       # Hidden Imports für Module die PyInstaller nicht automatisch findet
       run: >
-        pyinstaller --onefile --windowed
+        pyinstaller --noconfirm --clean --onefile --windowed
+        --name "MessKomplize"
         --icon=Icon.ico
         --add-data "Icon.PNG;."
         --hidden-import serial.tools.list_ports
         --hidden-import serial.tools.list_ports_windows
         --hidden-import tkinter
         --hidden-import tkinter.ttk
+        --hidden-import pythoncom
+        --hidden-import pywintypes
+        --hidden-import win32com.client
         "MK - MessKomplize.py"
       
     - name: Fertige EXE als Download bereitstellen
